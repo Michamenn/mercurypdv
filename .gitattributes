@@ -1,0 +1,4 @@
+# Normalização de finais de linha no repositório
+* text=auto
+# Scripts Linux/WSL DEVEM permanecer LF (CRLF quebra o bash)
+*.sh text eol=lf
