@@ -1,0 +1,12 @@
+# Mantém o contexto de build enxuto e evita vazar dados locais na imagem.
+node_modules
+data
+backups
+logs
+tests
+docs
+scripts
+.git
+.env
+deploy/.env
+*.md

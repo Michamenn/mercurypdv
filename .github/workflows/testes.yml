@@ -1,0 +1,23 @@
+# Testes automáticos do Mercury PDV (183 testes, node:test nativo)
+# Roda a cada push e pull request. Verde ✔ = código íntegro.
+name: Testes
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24        # node:sqlite exige Node >= 22.5
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Rodar os 183 testes
+        run: npm test

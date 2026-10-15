@@ -1,0 +1,55 @@
+# Mercury PDV 1.3 — deploy em VPS (Docker Compose)
+# Uso (dentro do WSL2, na raiz do projeto):
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Requer deploy/.env (copie de deploy/.env.example e preencha LP_PEPPER).
+# O container `app` NÃO é publicado na internet — só o Caddy (proxy) expõe 80/443.
+
+name: mercury-pdv
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: mercury-pdv:1.3.0
+    restart: unless-stopped
+    stop_grace_period: 15s   # tempo para WAL checkpoint no encerramento
+    env_file: .env
+    environment:
+      LP_HOST: 0.0.0.0
+      LP_PORTA: "3000"
+    volumes:
+      - vol_dados:/app/data        # banco SQLite (NUNCA servido por HTTP)
+      - vol_backups:/app/backups   # backups VACUUM INTO (auto a cada 6h)
+      - vol_logs:/app/logs         # logs da aplicação
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [interna]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"          # HTTP (padrão; mesma proteção da operação em LAN)
+      # - "443:443"      # HTTPS opcional — descomente ao ativar §8.2 do guia
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - vol_caddy:/data
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [interna]
+
+volumes:
+  vol_dados:
+  vol_backups:
+  vol_logs:
+  vol_caddy:
+
+networks:
+  interna:

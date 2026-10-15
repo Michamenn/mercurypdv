@@ -1,0 +1,203 @@
+/* ============================================================
+   Componentes e tokens reutilizáveis (P-07)
+
+   Objetivo: reduzir os estilos inline repetidos ("width:100%;
+   padding:12px;background:var(--canvas);...") sem REESCREVER o sistema.
+
+   Estratégia deliberada: as telas antigas continuam como estão (risco
+   baixo, reversível). A partir daqui, telas novas ou alteradas usam
+   estas classes. Migração do restante pode ser feita aos poucos.
+   ============================================================ */
+
+/* ---------- Campos de formulário ---------- */
+.campo {
+  display: block;
+  width: 100%;
+  padding: var(--input-padding);
+  border-radius: 10px;
+  border: 1px solid var(--borda);
+  background: var(--canvas);
+  color: var(--texto);
+  min-height: var(--touch-min);
+}
+.campo::placeholder { color: var(--texto-fraco); }
+.campo:focus-visible { outline: 3px solid #FFFF00; outline-offset: 1px; border-radius: 6px; }
+html.tema-claro .campo:focus-visible { outline-color: #1D4ED8; }
+
+.campo-titulo { display: block; font-size: .8rem; color: var(--texto-fraco); margin-bottom: 4px; font-weight: 600; }
+.campo-ajuda { display: block; font-size: .75rem; color: var(--texto-fraco); margin-top: 4px; }
+.campo-erro { display: block; font-size: .8rem; color: var(--alerta); margin-top: 4px; font-weight: 600; }
+.campo-erro:empty { display: none; }
+
+/* Busca com ícone embutido */
+.campo-busca { position: relative; display: flex; align-items: center; }
+.campo-busca svg { position: absolute; left: 12px; width: 1.1em; height: 1.1em; color: var(--texto-fraco); pointer-events: none; }
+.campo-busca input { padding-left: 38px; }
+
+/* ---------- Layout ---------- */
+.linha { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: center; }
+.linha > .cresce { flex: 1; min-width: 0; }
+.coluna { display: flex; flex-direction: column; gap: var(--gap); }
+.grade-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--gap); }
+.entre { display: flex; gap: var(--gap); align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+/* ---------- Botões ---------- */
+.botoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.botoes > .btn { flex: 1 1 auto; }
+.botoes-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+/* ---------- Cartões ---------- */
+.cartao-titulo { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 1.05rem; }
+.cartao-titulo svg { flex-shrink: 0; }
+.cartao-secao { margin-bottom: 12px; }
+
+/* ---------- Estados ---------- */
+.vazio-central { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 32px 16px; color: var(--texto-fraco); text-align: center; }
+.vazio-central svg { width: 2rem; height: 2rem; opacity: .5; }
+
+.carregando { opacity: .6; pointer-events: none; }
+.aviso-inline {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border-radius: 10px; border: 1px solid var(--alerta); background: color-mix(in srgb, var(--painel) 82%, var(--alerta) 18%);
+  color: var(--texto); margin-bottom: 12px;
+}
+.aviso-inline.atencao { border-color: var(--amarelo); background: color-mix(in srgb, var(--painel) 85%, var(--amarelo) 15%); }
+.aviso-inline.info { border-color: var(--borda); background: var(--painel); }
+
+/* ---------- Tabelas ---------- */
+.tabela-rolagem { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tabela-rolagem table.dados { min-width: 520px; }
+
+/* ---------- Modal helpers ---------- */
+.modal-acoes { display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-4); }
+.btn-full { width: 100%; margin-top: var(--space-3); }
+.btn-full-lg { width: 100%; margin-top: var(--space-3); min-height: var(--btn-lg-min); }
+
+/* ---------- PDV (balcão): grade protagonista, comanda cede espaço ---------- */
+.pdv-topo { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); flex-wrap: wrap; }
+.pdv-busca { flex: 2; min-width: 200px; }
+.pdv-meta, .produto-btn small.pdv-meta { color: var(--texto-fraco); }
+.produto-btn s { color: var(--texto-fraco); }
+.pdv-aside h3 { margin-top: 0; }
+.pdv-itens { max-height: 40vh; overflow: auto; }
+.pdv-itens small { color: var(--texto-fraco); }
+.pdv-itens small.obs { color: var(--amarelo); }
+.pdv-itens .pdv-item-acoes { display: flex; gap: var(--space-1); align-items: center; }
+.pdv-itens strong { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.pdv-total { font-size: var(--text-md); text-align: right; margin: var(--space-3) 0; }
+.pdv-total .valor { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ok); }
+.pdv-check { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); cursor: pointer; }
+.pdv-check input { width: 28px; height: 28px; }
+.pdv-acoes { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.pdv-acoes .pdv-finalizar { flex: 1; }
+.pdv-atalhos { color: var(--texto-fraco); }
+.pdv-corpo { display: flex; gap: var(--space-3); align-items: flex-start; }
+.pdv-area { flex: 2; min-width: 0; }
+.pdv-aside { flex: 1; min-width: 290px; position: sticky; top: var(--space-3); }
+/* Telas médias/celular: o shell lateral já consome 216px — sem largura
+   para grade + comanda lado a lado (a grade colapsava para ~250px,
+   uma coluna). A comanda empilha ABAIXO da grade, sem sticky e sem
+   ocultar produtos (a rota #mobile é a experiência otimizada p/ celular). */
+@media (max-width: 1024px) {
+  .pdv-corpo { flex-direction: column; align-items: stretch; }
+  .pdv-area { width: 100%; }
+  .pdv-aside { position: static; min-width: 0; width: auto; max-height: none; overflow: visible; }
+}
+
+/* ---------- Foco consistente ---------- */
+:focus-visible { outline: 3px solid #FFFF00; outline-offset: 2px; border-radius: 6px; }
+html.tema-claro :focus-visible { outline-color: #1D4ED8; }
+
+/* Nav modal helpers */
+.nav-modal-group { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); cursor: pointer; }
+.nav-modal-group input[type="checkbox"] { width: 22px; height: 22px; }
+.nav-modal-rotulo { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
+.nav-modal-rotulo span { min-width: 36px; text-align: center; }
+.nav-modal-rotulo input { flex: 1; padding: var(--space-2); background: var(--canvas); border-radius: var(--radius-md); border: 1px solid var(--borda); color: var(--texto); }
+.nav-modal-submit { width: 100%; margin-top: var(--space-4); }
+.campo-mt { margin-top: var(--space-2); }
+
+/* ---------- Venda rápida mobile (alvo: 393×852) ----------
+   Ordem: preço em destaque no topo → inserir produtos → mesas.
+   Menu inferior minimalista, só ícones (barra de app mobile). */
+.m-topo {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-1);
+  padding: var(--space-3); margin-bottom: var(--space-3);
+  background: var(--painel); border: 1px solid var(--borda);
+  border-radius: var(--radius-lg); text-align: center;
+  box-shadow: var(--shadow-1);
+}
+.m-topo-valor {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: var(--text-xl); font-weight: 700; color: var(--ok); line-height: 1.1;
+}
+.m-topo-sub { color: var(--texto-fraco); font-size: var(--text-sm); }
+
+.m-header-sticky {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--canvas); padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--borda);
+}
+.m-busca { width: 100%; padding: var(--input-padding); background: var(--canvas); border-radius: var(--radius-md); border: 1px solid var(--borda); color: var(--texto); font-size: var(--text-base); }
+.m-busca::placeholder { color: var(--texto-fraco); }
+.m-cats { display: flex; gap: var(--space-1); overflow-x: auto; white-space: nowrap; flex-wrap: nowrap; padding-bottom: var(--space-1); margin-bottom: 0; }
+.m-cats .btn { flex-shrink: 0; }
+
+/* Grade de produtos (2 colunas em 393px) + seleção de mesas no mesmo fluxo.
+   O clearance da barra fixa fica no wrapper (não na grade), para não criar
+   buraco entre produtos e mesas quando o modo mesa está ativo. */
+.m-corpo { padding-bottom: 88px; }
+.m-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-3); margin-top: var(--space-3); }
+.m-prod { height: 100%; display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; gap: var(--space-1); padding: var(--space-2); }
+.m-prod .thumb { width: 52px; height: 52px; border-radius: var(--radius-md); background: var(--canvas); display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0; border: 1px solid var(--borda); overflow: hidden; }
+.m-prod .info { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; }
+.m-prod .nome { font-weight: 700; font-size: var(--text-sm); display: block; }
+.m-prod .preco { color: var(--ok); font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; display: block; }
+.m-prod .indisponivel { color: var(--alerta); font-size: var(--text-xs); }
+.m-prod .add-sign { font-size: var(--text-md); opacity: .5; }
+
+/* Seleção de mesas: grade de ícones pequenos; selecionada fica amarela. */
+.m-mesas-wrap { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0; }
+.m-mesas { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: var(--space-2); }
+.m-mesa {
+  min-height: var(--btn-md-min); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: var(--space-1); border-radius: var(--radius-md);
+  font-size: var(--text-sm); font-weight: 700;
+}
+.m-mesa.ocupada { background: var(--ocupada-fundo); border-color: var(--ocupada-borda); color: var(--ocupada-texto); }
+.m-mesa.selecionada { background: var(--amarelo); border-color: var(--selecao-borda); color: var(--selecao-texto); box-shadow: var(--shadow-1); }
+.m-mesa-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+
+/* Menu inferior minimalista: só ícones, ~64px de altura. */
+.m-tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 100;
+  display: flex; gap: var(--space-1); align-items: center; justify-content: space-around;
+  max-width: 600px; margin: 0 auto;
+  padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
+  background: var(--superficie); border-top: 1px solid var(--borda);
+  box-shadow: 0 -4px 12px rgba(0,0,0,.25);
+}
+.m-tab {
+  flex: 1; max-width: var(--btn-lg-min); min-height: var(--btn-md-min);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md); position: relative;
+  font-size: var(--text-md); padding: var(--space-1);
+}
+.m-tab.ativa { background: var(--acao); border-color: var(--acao-escuro); color: var(--acao-texto); }
+.m-tab-enviar { background: var(--ok); border-color: var(--ok-borda); color: var(--ok-texto); }
+.m-tab-sep { width: 1px; height: var(--space-5); background: var(--borda); flex: 0 0 1px; }
+.m-badge {
+  position: absolute; top: 2px; right: 8px;
+  min-width: 18px; height: 18px; padding: 0 4px; border-radius: 999px;
+  background: var(--amarelo); color: var(--selecao-texto);
+  font-size: var(--text-xs); font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Em telas estreitas o menu do app fica oculto (folha via ☰),
+   então a barra de ações é a única no rodapé — volta para bottom: 0. */
+
+@media (max-width: 768px) {
+  .botoes > .btn { min-width: 45%; }
+  .campo { font-size: 16px; } /* evita zoom automático no iOS */
+}

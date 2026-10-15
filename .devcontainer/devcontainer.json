@@ -1,0 +1,16 @@
+// Testar o Mercury PDV ONLINE com um clique: GitHub → botão "Code" → Codespaces.
+// Sobe uma VM na nuvem com Node LTS, instala dependências e inicia o sistema na porta 3000.
+// ATENÇÃO: ambiente de TESTE — a base de dados é temporária (somem quando o codespace é apagado).
+{
+  "name": "Mercury PDV 1.3",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts/*" }
+  },
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": { "label": "Mercury PDV", "onAutoForward": "notify" }
+  },
+  "postCreateCommand": "npm install",
+  "postStartCommand": "npm start"
+}

@@ -1,0 +1,16 @@
+# Segredos - nunca versionar/compartilhar
+.env
+deploy/.env
+
+# Dados comerciais
+data/
+backups/
+logs/
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Dependências e lixo
+node_modules/
+*.log
+*.zip
+Thumbs.db

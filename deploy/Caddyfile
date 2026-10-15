@@ -1,0 +1,22 @@
+# Mercury PDV — proxy reverso Caddy (VPS sem domínio, apenas IP)
+# WebSocket (/ws) é repassado automaticamente pelo reverse_proxy.
+
+:80 {
+	encode gzip
+	reverse_proxy app:3000
+}
+
+# ── HTTPS com certificado interno (opcional, recomendado) ──────────────
+# Passos (detalhes em docs/12-deploy-vps-windows.md §8.2):
+#   1. Em docker-compose.yml, descomente a porta "443:443".
+#   2. Substitua SEU_IP_AQUI pelo IP público da VPS e descomente o bloco.
+#   3. Importe a CA raiz do Caddy nos dispositivos clientes.
+#
+# https://SEU_IP_AQUI {
+# 	tls internal
+# 	encode gzip
+# 	reverse_proxy app:3000
+# }
+#
+# A CA raiz pode ser extraída com:
+#   docker cp mercury-pdv-caddy-1:/data/caddy/pki/authorities/local/root.crt .
