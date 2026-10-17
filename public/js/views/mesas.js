@@ -274,17 +274,36 @@ function abrirPropriedades(mesa, conteudo, estadoApp) {
   const bloq = m.caixa.querySelector('[data-a="bloquear"]');
   if (bloq) bloq.onclick = async () => {
     const ligando = !mesa.bloqueada;
-    let motivo = null;
-    if (ligando) {
-      motivo = prompt('Motivo do bloqueio (ex: reserva 20h):');
-      if (!motivo || motivo.trim().length < 3) return;
+    if (!ligando) {
+      // Desbloquear não exige motivo — segue direto (comportamento anterior).
+      try {
+        await post(`/mesas/${mesa.id}/bloqueio`, { bloqueada: false, motivo: null });
+        m.fechar();
+        toast('Mesa desbloqueada', 'ok');
+        atualizar(conteudo, estadoApp);
+      } catch (e) { toast(e.message, 'erro'); }
+      return;
     }
-    try {
-      await post(`/mesas/${mesa.id}/bloqueio`, { bloqueada: ligando, motivo: motivo?.trim() });
-      m.fechar();
-      toast(ligando ? 'Mesa bloqueada' : 'Mesa desbloqueada', 'ok');
-      atualizar(conteudo, estadoApp);
-    } catch (e) { toast(e.message, 'erro'); }
+    // Nunca prompt() nativo: bottom-sheet com motivo obrigatório.
+    const dlg = modal(`<h2>Bloquear ${escapar(mesa.rotulo ?? 'mesa')}</h2>
+      <label class="campo-titulo" for="blq-motivo">Motivo do bloqueio</label>
+      <input id="blq-motivo" class="campo" maxlength="200" autocomplete="off"
+        placeholder="Ex.: reserva às 20h" />
+      <div class="modal-acoes">
+        <button class="btn ghost" data-a="voltar">Voltar</button>
+        <button class="btn primario" data-a="ok">Bloquear</button>
+      </div>`, { folha: true });
+    dlg.caixa.querySelector('[data-a="voltar"]').onclick = dlg.fechar;
+    dlg.caixa.querySelector('[data-a="ok"]').onclick = async () => {
+      const motivo = dlg.caixa.querySelector('#blq-motivo').value.trim();
+      if (motivo.length < 3) { toast('Informe um motivo (mínimo 3 caracteres)', 'erro'); return; }
+      try {
+        await post(`/mesas/${mesa.id}/bloqueio`, { bloqueada: true, motivo });
+        dlg.fechar(); m.fechar();
+        toast('Mesa bloqueada', 'ok');
+        atualizar(conteudo, estadoApp);
+      } catch (e) { toast(e.message, 'erro'); }
+    };
   };
   const excl = m.caixa.querySelector('[data-a="excluir"]');
   if (excl) excl.onclick = async () => {
@@ -519,18 +538,30 @@ function abrirNovaComanda(mesaId, numero, conteudo, estadoApp, individual = fals
   }
   const btnNovoCli = m.caixa.querySelector('#cli-novo');
   if (btnNovoCli) btnNovoCli.onclick = () => {
-    const nome = prompt('Nome do novo cliente:');
-    if (!nome || nome.trim().length < 2) return;
-    const doc = prompt('Documento (CPF/CNPJ) — opcional:', '');
-    try {
-      post('/clientes', { nome: nome.trim(), documento: doc?.trim() || null })
+    // Nunca prompt() nativo: um único bottom-sheet com os dois campos.
+    const dlg = modal(`<h2>Novo cliente</h2>
+      <label class="campo-titulo" for="cli-nome">Nome do cliente</label>
+      <input id="cli-nome" class="campo" maxlength="80" autocomplete="off" placeholder="Nome completo" />
+      <label class="campo-titulo" for="cli-doc" style="margin-top:var(--space-2)">Documento (CPF/CNPJ) — opcional</label>
+      <input id="cli-doc" class="campo" maxlength="20" autocomplete="off" placeholder="Somente se quiser vincular" />
+      <div class="modal-acoes">
+        <button class="btn ghost" data-a="v">Cancelar</button>
+        <button class="btn primario" data-a="ok">Cadastrar</button>
+      </div>`, { folha: true });
+    dlg.caixa.querySelector('[data-a="v"]').onclick = dlg.fechar;
+    dlg.caixa.querySelector('[data-a="ok"]').onclick = () => {
+      const nome = dlg.caixa.querySelector('#cli-nome').value.trim();
+      if (nome.length < 2) { toast('Informe o nome (mínimo 2 caracteres)', 'erro'); return; }
+      const doc = dlg.caixa.querySelector('#cli-doc').value.trim() || null;
+      dlg.fechar();
+      post('/clientes', { nome, documento: doc })
         .then((r) => {
           clienteSelecionado = r.corpo.id;
           m.caixa.querySelector('#cliente').value = r.corpo.nome;
           toast('Cliente cadastrado', 'ok');
         })
         .catch((e) => toast(e.message, 'erro'));
-    } catch (e) { toast(e.message, 'erro'); }
+    };
   };
 
   m.caixa.querySelector('[data-a="c"]').onclick = m.fechar;
@@ -788,19 +819,33 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
     corpo.querySelectorAll('[data-cancel]').forEach((b) => {
       b.onclick = async () => {
         const item = pedido.itens.find((i) => i.id === Number(b.dataset.cancel));
-        const motivo = prompt('Motivo do cancelamento:');
-        if (!motivo || motivo.trim().length < 3) return;
-        let autorizacao = {};
-        if (item.enviado_cozinha_em && estadoApp.usuario.cargo !== 'admin') {
-          const a = await pedirAutorizacaoAdmin({ titulo: 'Cancelar item já enviado' });
-          if (!a) return;
-          autorizacao = a;
-        }
-        try {
-          await post(`/pedidos/${pedido.id}/itens/${item.id}/cancelar`, { motivo, ...autorizacao });
-          toast('Item cancelado (registrado na auditoria)', 'ok');
-          await redesenhar();
-        } catch (e) { toast(e.message, 'erro'); }
+        // Nunca prompt() nativo: modal com motivo (o botão perigo é a confirmação).
+        const dlg = modal(`<h2>Cancelar item</h2>
+          <p>"${escapar(item.nome_produto)}" sairá da comanda.</p>
+          <label class="campo-titulo" for="cnc-motivo">Motivo do cancelamento</label>
+          <input id="cnc-motivo" class="campo" maxlength="200" autocomplete="off"
+            placeholder="Motivo (mínimo 3 caracteres)" />
+          <div class="modal-acoes">
+            <button class="btn ghost" data-a="manter">Manter item</button>
+            <button class="btn perigo" data-a="cancelar">Cancelar item</button>
+          </div>`);
+        dlg.caixa.querySelector('[data-a="manter"]').onclick = dlg.fechar;
+        dlg.caixa.querySelector('[data-a="cancelar"]').onclick = async () => {
+          const motivo = dlg.caixa.querySelector('#cnc-motivo').value.trim();
+          if (motivo.length < 3) { toast('Informe um motivo (mínimo 3 caracteres)', 'erro'); return; }
+          dlg.fechar();
+          let autorizacao = {};
+          if (item.enviado_cozinha_em && estadoApp.usuario.cargo !== 'admin') {
+            const a = await pedirAutorizacaoAdmin({ titulo: 'Cancelar item já enviado' });
+            if (!a) return;
+            autorizacao = a;
+          }
+          try {
+            await post(`/pedidos/${pedido.id}/itens/${item.id}/cancelar`, { motivo, ...autorizacao });
+            toast('Item cancelado (registrado na auditoria)', 'ok');
+            await redesenhar();
+          } catch (e) { toast(e.message, 'erro'); }
+        };
       };
     });
   }

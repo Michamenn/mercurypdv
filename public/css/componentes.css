@@ -104,6 +104,18 @@ html.tema-claro .campo:focus-visible { outline-color: #1D4ED8; }
   .pdv-aside { position: static; min-width: 0; width: auto; max-height: none; overflow: visible; }
 }
 
+/* ---------- Indicador de conexão (3 estados) ----------
+   Rótulo textual sempre presente (●/◌/× + palavra): cor nunca é o único sinal. */
+.estado-conexao {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--borda); background: var(--painel);
+  font-size: var(--text-sm); font-weight: 600; white-space: nowrap;
+}
+.estado-conexao.on { border-color: var(--ok); color: var(--ok); }
+.estado-conexao.meio { border-color: var(--amarelo); color: var(--amarelo); }
+.estado-conexao.off { border-color: var(--alerta); color: var(--alerta); }
+
 /* ---------- Foco consistente ---------- */
 :focus-visible { outline: 3px solid #FFFF00; outline-offset: 2px; border-radius: 6px; }
 html.tema-claro :focus-visible { outline-color: #1D4ED8; }
@@ -134,7 +146,7 @@ html.tema-claro :focus-visible { outline-color: #1D4ED8; }
 .m-topo-sub { color: var(--texto-fraco); font-size: var(--text-sm); }
 
 .m-header-sticky {
-  position: sticky; top: 0; z-index: 10;
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10;
   background: var(--canvas); padding: var(--space-2) 0;
   border-bottom: 1px solid var(--borda);
 }
@@ -173,16 +185,18 @@ html.tema-claro :focus-visible { outline-color: #1D4ED8; }
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 100;
   display: flex; gap: var(--space-1); align-items: center; justify-content: space-around;
   max-width: 600px; margin: 0 auto;
-  padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
+  padding: var(--space-1) calc(var(--space-2) + env(safe-area-inset-right, 0px)) calc(var(--space-1) + env(safe-area-inset-bottom, 0px)) calc(var(--space-2) + env(safe-area-inset-left, 0px));
   background: var(--superficie); border-top: 1px solid var(--borda);
   box-shadow: 0 -4px 12px rgba(0,0,0,.25);
 }
 .m-tab {
-  flex: 1; max-width: var(--btn-lg-min); min-height: var(--btn-md-min);
+  flex: 1; max-width: var(--btn-lg-min); min-height: 48px; /* venda de uma mão: alvo >= 48px mesmo em densidade compacta */
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius-md); position: relative;
   font-size: var(--text-md); padding: var(--space-1);
+  transition: transform 120ms ease-out;
 }
+.m-tab:active { transform: scale(.94); }
 .m-tab.ativa { background: var(--acao); border-color: var(--acao-escuro); color: var(--acao-texto); }
 .m-tab-enviar { background: var(--ok); border-color: var(--ok-borda); color: var(--ok-texto); }
 .m-tab-sep { width: 1px; height: var(--space-5); background: var(--borda); flex: 0 0 1px; }
@@ -193,6 +207,43 @@ html.tema-claro :focus-visible { outline-color: #1D4ED8; }
   font-size: var(--text-xs); font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
+
+/* ---------- Redesign mobile da venda (P1) ---------- */
+/* Botão do carrinho mostra o TOTAL na zona do polegar — sempre visível. */
+.m-tab-ver { flex: 1.8 1 auto; max-width: none; flex-direction: row; gap: var(--space-2); }
+.m-tab-ver-total { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--ok); font-size: var(--text-base); line-height: 1.1; }
+.m-badge.pulsa { animation: m-badge-pulsa 320ms ease-out; }
+@keyframes m-badge-pulsa { 40% { transform: scale(1.5); } }
+
+/* Card do produto: wrapper separado p/ o stepper (botão nunca dentro de botão).
+   Toque no card = +1 direto; stepper aparece quando o produto está no carrinho. */
+.m-prod-card { display: flex; flex-direction: column; gap: var(--space-1); }
+.m-prod-card .m-prod { flex: 1; }
+.m-prod { transition: transform 120ms ease-out; }
+.m-prod:active { transform: scale(.95); }
+.m-prod-rodape { display: flex; gap: var(--space-1); align-items: stretch; }
+.m-prod-rodape:empty { display: none; }
+.m-prod-rodape .btn { flex: 1; min-height: 48px; min-width: 48px; display: flex; align-items: center; justify-content: center; font-size: var(--text-md); padding: var(--space-1); }
+.m-prod-qtd { display: flex; align-items: center; justify-content: center; min-width: 40px; font-weight: 700; font-size: var(--text-md); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Carrinho em bottom-sheet: steppers por linha + remoção por botão OU swipe. */
+.m-carrinho-lista { max-height: 52vh; overflow: auto; }
+.m-carrinho-linha { border-bottom: 1px dashed var(--borda); touch-action: pan-y; }
+.m-carrinho-inner { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; }
+.m-carrinho-inner.rolando { transition: transform 180ms ease-out; }
+.m-carrinho-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.m-carrinho-nome { font-weight: 600; }
+.m-carrinho-obs { color: var(--amarelo); font-size: var(--text-sm); }
+.m-carrinho-valor { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.m-carrinho-acoes { display: flex; gap: var(--space-1); align-items: center; flex-shrink: 0; }
+.m-carrinho-acoes .btn { min-height: 48px; min-width: 48px; padding: var(--space-1); display: flex; align-items: center; justify-content: center; }
+.m-carrinho-acoes .m-qtd { min-width: 2ch; text-align: center; font-family: var(--mono); font-weight: 700; }
+.m-carrinho-dica { color: var(--texto-fraco); font-size: var(--text-xs); margin: var(--space-2) 0 0; display: flex; gap: 6px; align-items: center; }
+.m-carrinho-dica svg { flex-shrink: 0; }
+
+/* Safe-area superior da venda (PWA standalone com notch) + busca nativa. */
+.m-view { padding-top: env(safe-area-inset-top, 0px); }
+.m-busca { appearance: none; -webkit-appearance: none; }
 
 /* Em telas estreitas o menu do app fica oculto (folha via ☰),
    então a barra de ações é a única no rodapé — volta para bottom: 0. */

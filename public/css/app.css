@@ -250,6 +250,17 @@ input, select, textarea {
 .cartao-kds.atrasado { border-color: var(--alerta); }
 .cartao-kds .tempo { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--texto-fraco); font-size: .85rem; }
 .cartao-kds.atrasado .tempo { color: var(--alerta); font-weight: 700; }
+/* Redesign KDS (Fase 2): selo de tempo no card e botão por estado (PREPARANDO/PRONTO). */
+.kds-cabeca { margin: var(--space-1) 0; }
+.kds-tempo-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--amarelo) 16%, transparent); border: 1px solid var(--amarelo);
+  color: var(--amarelo); font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-weight: 700; font-size: .8rem;
+}
+.kds-tempo-badge svg { width: 1em; height: 1em; }
+.kds-tempo-badge.atrasado { background: color-mix(in srgb, var(--alerta) 20%, transparent); border-color: var(--alerta); color: var(--alerta); }
+.btn.kds-preparar { background: var(--amarelo); border-color: var(--selecao-borda); color: var(--selecao-texto); font-weight: 700; }
 
 /* tabelas */
 table.dados { width: 100%; border-collapse: collapse; }
@@ -260,6 +271,23 @@ table.dados td.num { font-family: var(--mono); font-variant-numeric: tabular-num
 .modal-fundo { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
 .modal { background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--radius-lg); padding: var(--space-4); width: min(560px, 100%); max-height: 92vh; overflow: auto; box-shadow: var(--shadow-2); }
 .modal h2 { margin-top: 0; font-size: var(--text-lg); }
+/* Bottom-sheet (folha inferior mobile): mesmo fundo, foco e trap do modal,
+   ancorada no rodapé — observações, carrinho e ações secundárias (thumb zone).
+   A animação é neutralizada automaticamente pelas regras globais de
+   reduced-motion (app.css) quando o usuário/OS preferir menos movimento. */
+.modal-fundo:has(.modal.bottom-sheet) { align-items: flex-end; padding: 16px 16px 0; }
+.modal.bottom-sheet {
+  margin: 0 auto; width: min(600px, 100%);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  max-height: 86vh;
+  animation: m-folha-sobe 200ms ease-out;
+}
+.modal.bottom-sheet::before { /* handle visual de arraste */
+  content: ''; display: block; width: 44px; height: 5px; border-radius: 999px;
+  background: var(--borda); margin: 0 auto var(--space-3);
+}
+@keyframes m-folha-sobe { from { transform: translateY(28px); opacity: .5; } }
 .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); margin-top: var(--space-3); }
 .numpad .btn { min-height: var(--numpad-btn); font-size: var(--text-lg); }
 .display-valor { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--text-xl); text-align: right; padding: var(--space-2) var(--space-3); background: var(--canvas); border: 1px solid var(--borda); border-radius: var(--radius-md); }

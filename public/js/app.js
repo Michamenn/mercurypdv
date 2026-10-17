@@ -28,17 +28,33 @@ export const estado = {
 const app = document.getElementById('app');
 
 aoPerderSessao(() => { desconectarWS(); estado.usuario = null; renderLogin('Sessão encerrada. Faça login novamente.'); });
-aoEstado((online) => {
+
+// Indicador de conexão em 3 estados: ● Conectado / ◌ Reconectando / × Sem conexão.
+// O ws.js continua sendo o árbitro do "dá para transacionar?" (booleano, sem
+// mudança de protocolo); aqui só derivamos o rótulo: sem rede local = sem
+// conexão; WS caiu com rede = reconexão automática em andamento (backoff).
+let wsOk = true;
+function refletirConexao() {
   const el = document.getElementById('estado-conexao');
-  if (el) {
-    el.textContent = online ? '● Online' : '● Sem conexão';
-    el.className = `estado-conexao ${online ? 'on' : 'off'}`;
+  if (!el) return;
+  let txt = '● Conectado', cls = 'on';
+  if (!wsOk) {
+    if (navigator.onLine === false) { txt = '× Sem conexão'; cls = 'off'; }
+    else { txt = '◌ Reconectando…'; cls = 'meio'; }
   }
+  el.textContent = txt;
+  el.className = `estado-conexao ${cls}`;
+}
+aoEstado((online) => {
+  wsOk = online;
+  refletirConexao();
   if (online && estado.usuario) {
     drenarFilaKds(async (item) => postFila(`/pedidos/${item.pedido_id}/kds-avancar`, {}));
     atualizarSyncDispositivos();
   }
 });
+window.addEventListener('online', refletirConexao);
+window.addEventListener('offline', refletirConexao);
 
 // 1.3.1 — eventos em tempo real do sino e da sincronização de dispositivos
 aoEvento((ev) => {
@@ -197,7 +213,7 @@ function renderTopo() {
     <header class="topo">
       <span class="marca">${logo} ${escapar(estado.configPublica?.empresa_nome ?? 'Mercury PDV')}</span>
       <span class="operador">${escapar(estado.usuario.nome)} · ${rotuloCargo(estado.usuario.cargo)}</span>
-      <span id="estado-conexao" class="estado-conexao on">● Online</span>
+      <span id="estado-conexao" class="estado-conexao on">● Conectado</span>
       <span id="sync-dispositivos" class="sync-dispositivos" title="Dispositivos sincronizados em tempo real">⟳ —</span>
       <span class="spacer"></span>
       ${podeVerSino() ? `
@@ -275,6 +291,7 @@ function render() {
   const rota = rotaAtual();
   definirMenu(false); // re-render sempre fecha a folha do celular
   app.innerHTML = renderTopo();
+  refletirConexao(); // indicador de conexão honesto em cada troca de tela
   app.querySelectorAll('[data-rota]').forEach((b) => {
     b.onclick = () => navegar(b.dataset.rota);
     if (b.dataset.rota === rota.id) b.classList.add('ativa');

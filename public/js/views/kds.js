@@ -5,13 +5,29 @@
 import { ic } from '../icons.js';
 import { get, post, fmt } from '../api.js';
 import { toast, escapar, modal } from '../ui.js';
-import { aoEvento } from '../ws.js';
+import { aoEvento, aoEstado } from '../ws.js';
 import { tocarNovoPedido, tocarPronto, tocarAtrasado, renderSoundConfig, carregarPreferenciasSom } from '../sound.js';
 
 let cancelarEventos = null;
 let tick = null;
 let tickLocal = null;
 let atrasadosJaAlertados = new Set();
+let kdsWsOk = true; // espelho local do estado do WS p/ o selo do painel (visual)
+let desouvirKdsEstado = null;
+
+// Selo de conexão do painel (mesma derivação do app shell, sem tocar no ws.js):
+// WS ok = Conectado; WS caiu com rede = Reconectando; sem rede = Sem conexão.
+function refletirConexaoKds() {
+  const el = document.getElementById('kds-conexao');
+  if (!el) return;
+  let txt = '● Painel KDS — Conectado', cls = 'on';
+  if (!kdsWsOk) {
+    if (navigator.onLine === false) { txt = '× Painel KDS — Sem conexão'; cls = 'off'; }
+    else { txt = '◌ Painel KDS — Reconectando…'; cls = 'meio'; }
+  }
+  el.textContent = txt;
+  el.className = `estado-conexao ${cls}`;
+}
 
 carregarPreferenciasSom();
 
@@ -20,6 +36,7 @@ export async function render(conteudo, _sub, estadoApp) {
   clearInterval(tick);
   clearInterval(tickLocal);
   atrasadosJaAlertados = new Set();
+  if (!desouvirKdsEstado) desouvirKdsEstado = aoEstado((online) => { kdsWsOk = online; refletirConexaoKds(); });
   cancelarEventos = aoEvento((ev) => {
     if (ev.tipo === 'kds.enviado') tocarNovoPedido();
     if (ev.tipo === 'kds.status' && ev.payload?.para === 'pronto') tocarPronto();
@@ -99,24 +116,32 @@ async function atualizar(conteudo, estadoApp) {
   const cartao = (p) => {
     const t = dadosTimer(p);
     const tempos = [...new Set(p.itens.map((i) => i.tempo_preparo_min || 0))];
+    const origem = p.comanda_nome ? escapar(p.comanda_nome) : p.mesa_numero ? `Mesa ${p.mesa_numero}` : 'Balcão';
     return `
-      <div class="cartao-kds ${visualDe(p)} ${t.atrasado ? 'atrasado' : ''}" data-pedido="${p.id}" role="button" tabindex="0">
-        <strong>#${p.id}</strong> ${p.mesa_numero ? `· Mesa ${p.mesa_numero}` : '· Balcão'}
+      <div class="cartao-kds ${visualDe(p)} ${t.atrasado ? 'atrasado' : ''}" data-pedido="${p.id}" role="button" tabindex="0"
+        aria-label="Pedido ${p.id}, ${origem}, ${t.atrasado ? 'atrasado' : `${t.min} de ${t.estMin} minutos`}">
+        <strong>Pedido #${p.id}</strong> <span class="badge">${origem}</span>
         ${blocoTimer(p)}
         ${p.itens.map((i) => `<div>${i.quantidade}× ${escapar(i.nome_produto)}${i.tempo_preparo_min ? `<small class="kds-item-tempo" title="Tempo de preparo estimado"> (${i.tempo_preparo_min} min)</small>` : ''}${i.adicionais ? `<br><small style="color:var(--texto-fraco)">+ ${escapar(i.adicionais)}</small>` : ''}${i.observacoes ? `<br><small style="color:var(--amarelo)">${ic('lapis')} ${escapar(i.observacoes)}</small>` : ''}</div>`).join('<hr style="border-color:var(--borda);border-style:dashed">')}
         ${tempos.length > 1 ? `<small style="color:var(--texto-fraco)">Estimativa: ${p.tempo_estimado_min} min (item mais demorado)</small>` : ''}
-        <button class="btn primario" data-avancar="${p.id}" style="width:100%;margin-top:8px">${rotuloAvanco(visualDe(p))}</button>
-        <button class="btn ghost" data-ticket="${p.id}" style="width:100%;margin-top:6px"> Ticket</button>
+        <button class="btn ${classeAvanco(visualDe(p))}" data-avancar="${p.id}" style="width:100%;margin-top:8px;min-height:48px"
+          aria-label="${rotuloA11yAvanco(visualDe(p), p.id)}">${rotuloAvanco(visualDe(p))}</button>
+        <button class="btn ghost" data-ticket="${p.id}" style="width:100%;margin-top:6px" aria-label="Ticket operacional do pedido ${p.id}">${ic('impressora')} Ticket</button>
       </div>`;
   };
   const visualDe = (p) => p.kds_status === 'entregue' ? 'pronto' : p.kds_status;
-  const rotuloAvanco = (v) => ({ pendente: '▶ Iniciar preparo', preparando: ic('check') + ' Marcar pronto', pronto: ic('pacote') + ' Entregar' }[v] ?? '—');
+  // Botões de ação (spec KDS): PREPARANDO (amarelo) e PRONTO (verde).
+  // A transição continua validada no servidor — pulo de estado dá 409 (KDS-001).
+  const rotuloAvanco = (v) => ({ pendente: ic('panela') + ' PREPARANDO', preparando: ic('check') + ' PRONTO', pronto: ic('pacote') + ' ENTREGAR' }[v] ?? '—');
+  const classeAvanco = (v) => ({ pendente: 'kds-preparar', preparando: 'ok', pronto: 'primario' }[v] ?? 'ghost');
+  const rotuloA11yAvanco = (v, id) => ({ pendente: `Iniciar preparo do pedido ${id}`, preparando: `Marcar pedido ${id} como pronto`, pronto: `Entregar pedido ${id}` }[v] ?? `Avançar pedido ${id}`);
 
   conteudo.innerHTML = `
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <h2 style="margin:0;flex:1"> Cozinha — fila em tempo real</h2>
       <span class="badge" title="Cada pedido usa o tempo de preparo cadastrado nos produtos">${ic('relogio')} Estimativa por produto</span>
-      <button class="btn ghost" id="btn-som-kds" aria-label="Som — configurar sons da cozinha"> Som</button>
+      <span id="kds-conexao" class="estado-conexao on">● Painel KDS — Conectado</span>
+      <button class="btn ghost" id="btn-som-kds" aria-label="Som — configurar sons da cozinha">${ic('som')} Som</button>
     </div>
     <div id="som-kds-config"></div>
     <div class="kanban">
@@ -126,6 +151,7 @@ async function atualizar(conteudo, estadoApp) {
       <div class="coluna-kds"><h3>Entregues (turno)</h3><div class="vazio" style="padding:10px">Entregues desaparecem do quadro.<br><small>Itens entregues: ${fila.pedidos.filter((p) => visualDe(p) === 'pronto' && p.itens.every((i) => i.kds_status === 'entregue')).length}</small></div></div>
     </div>`;
 
+  refletirConexaoKds(); // selo honesto a cada montagem/atualização (não só em eventos)
   const somBtn = conteudo.querySelector('#btn-som-kds');
   const somBox = conteudo.querySelector('#som-kds-config');
   let somAberto = false;
