@@ -20,9 +20,11 @@ node --test tests/01-auth.test.js
 .\scripts\backup.ps1
 ```
 
-> **⚠️ Nuvem AWS ativa**: produção em `http://<IP_PUBLICO>` (implantada em
-> 17/10/2026). Antes de operar a nuvem, leia `docs/17-operacao-aws.md`
-> (estado vivo + runbook — acesso via MCP `aws-mcp` e EC2 Instance Connect).
+> **⚠️ Nuvem AWS ativa**: produção na AWS (implantada em 17/10/2026). Antes de
+> operar a nuvem, leia `docs/17-operacao-aws.md` (estado vivo + runbook — acesso
+> via MCP `aws-mcp` e EC2 Instance Connect). **Endereço público e identificadores**
+> (conta, instância, SG/VPC) ficam em `docs/17-operacao-aws.local.md` — arquivo
+> **local, ignorado pelo Git**: nunca versionar.
 
 ## Architecture Essentials
 
@@ -131,7 +133,7 @@ node --test tests/26-impressao-sessoes.test.js tests/27-notificacoes-kds.test.js
 ### 6. Step-Up Admin (Sensitive Ops)
 Required for: caixa sangria/suprimento, cancel item sent to kitchen, payment estorno, dev panel
 ```json
-{ "admin_usuario": "Dono", "admin_senha": "SenhaForte123" }
+{ "admin_usuario": "<usuario-gestor>", "admin_senha": "<senha-do-gestor>" }
 ```
 - No master password exists (DIV-005)
 
@@ -168,7 +170,7 @@ Required for: caixa sangria/suprimento, cancel item sent to kitchen, payment est
 | Mesas em lote, lado a lado | `POST /api/mesas` aceita `quantidade` (1–50, numeração sequencial, `assentos` aplicado); `posicoesLivresNaGrade()` posiciona na grade 130px sem sobrepôr existentes; botão exige `pode_gerenciar_mesas` (não `pode_lancar_comanda`) |
 
 ### 12. Nuvem AWS ativa (implantação de 17/10/2026)
-- **Produção no ar**: `http://<IP_PUBLICO>` — EC2 `t3.micro` (free tier) em `sa-east-1`, HTTP via Caddy, dados a partir do zero (cardápio de 35 itens já importado).
+- **Produção no ar**: EC2 `t3.micro` (free tier) em `sa-east-1`, HTTP via Caddy, dados a partir do zero (cardápio de 35 itens já importado). Endereço público e IDs no arquivo **local** ignorado pelo Git (`docs/17-operacao-aws.local.md`).
 - **Fonte de verdade da nuvem**: `docs/17-operacao-aws.md` (estado vivo + runbook: atualizar versão, logs, troca de IP, domínio/HTTPS, importar cardápio, pegadinhas).
 - **Acesso do agente**: APIs via MCP `aws-mcp` (não há AWS CLI/Docker locais); shell via EC2 Instance Connect — cada `ssh`/`scp` exige novo `SendSSHPublicKey` (válido 60 s). Detalhes no runbook.
 - **Cardápio semente**: `cardapio-para-importar.json` (raiz) — menu real da loja no formato de importação; serve para re-importar/replicar.
@@ -216,7 +218,8 @@ LP_URL_PUBLICA=   # 1.3.1 — endereço online (AWS/domínio). Vazio = só rede 
 - `docs/14-manual-instalacao-vps.md` — Manual passo a passo explicativo da instalação na VPS
 - `docs/15-github-e-testes-online.md` — Subir no GitHub, CI dos testes e Codespaces
 - `docs/16-versao-1.3.1.md` — Notas da versão 1.3.1 (impressão, KDS inteligente, sino, CSV, sessões, AWS)
-- `docs/17-operacao-aws.md` — **Estado vivo da nuvem + runbook do agente** (instância, IP, acesso SSH, atualização de versão)
+- `docs/17-operacao-aws.md` — **Estado vivo da nuvem + runbook do agente** (acesso SSH, atualização de versão, pegadinhas; identificadores em `docs/17-operacao-aws.local.md`, ignorado pelo Git)
+- `docs/18-alteracoes-2026-10-17.md` — **Alterações de 17/10/2026** (painel Conta nos 4 painéis, PDV padronizado com a mesa, cargo Proprietário, painel dev excluir/reativar usuário, deploys do dia)
 - `DEPLOY_AWS.md` — Guia completo de implantação na AWS (EC2, ECS Fargate, Elastic Beanstalk)
 
 ## Permission Flags (from `permissoes` table)

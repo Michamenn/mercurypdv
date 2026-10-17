@@ -1,6 +1,7 @@
 # Segredos - nunca versionar/compartilhar
 .env
 deploy/.env
+docs/*.local.md
 
 # Dados comerciais
 data/

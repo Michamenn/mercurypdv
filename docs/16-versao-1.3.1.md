@@ -1,5 +1,12 @@
 # Mercury PDV 1.3.1 — Notas da Versão
 
+> **Complemento de 17/10/2026:** depois desta publicação entraram, ainda na
+> 1.3.1, o painel **Conta** (conferência/impressão nos 4 painéis de venda), o
+> cargo **Proprietário**, o **painel do PDV padronizado** com o da mesa, o
+> **modal de quantidade** com stepper e a **exclusão/reativação de usuário** no
+> painel dev — migração **013** e suíte em **199 testes**. Detalhes:
+> `docs/18-alteracoes-2026-10-17.md`.
+
 > Atualização da 1.3 para a **1.3.1**. Compatível com o banco da 1.3:
 > a migração `012_v131_impressao_notificacoes.sql` é aplicada automaticamente
 > no primeiro boot e não altera nenhum dado existente. Os **195 testes**

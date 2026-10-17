@@ -91,8 +91,14 @@ Esta é a **1.3.1**. As principais mudanças:
 | **Sessões ativas** | Quem está logado (web/celular/APK), IP, última atividade e desconexão imediata |
 | **Celular online ou local** | QR Code da rede local **e** endereço público na nuvem (`https://pdv.sualanchonete.com.br`) |
 | **Mesas em lote** | Crie até 50 mesas de uma vez, numeradas em sequência e dispostas lado a lado no mapa |
+| **Painel Conta nos 4 painéis** | Botão *Conta* no PDV, na mesa, nas comandas e no celular: confere o pedido e imprime a nota, **sem gravar nada** |
+| **Cargo Proprietário** | Todos os privilégios do Administrador (inclusive desconto), **sem** o painel do desenvolvedor |
+| **Painéis de venda padronizados** | Comanda/mesa e PDV com altura fixa, lista de itens rolável e ação principal (*Receber / Fechar*, *Finalizar*) na largura total |
+| **Gorjeta no Receber / Fechar** | Gorjeta lançada na hora de receber, sem entrar no total nem no saldo do pedido |
+| **Excluir / reativar usuário** | Painel do desenvolvedor (*Suporte técnico → Usuários*): exclui liberando o login e preservando o histórico, e reativa quando precisar |
 
-> Detalhes por entrega: `docs/16-versao-1.3.1.md`.
+> Detalhes por entrega: `docs/16-versao-1.3.1.md`. Alterações de **17/10/2026**:
+> `docs/18-alteracoes-2026-10-17.md`.
 ### Correções
 
 | Antes | Agora |
