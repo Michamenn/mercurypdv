@@ -101,7 +101,7 @@ export function render(raiz, mensagem, aoEntrar) {
     });
   }
 
-  function rotulo(cargo) { return { admin: 'Administrador', caixa: 'Caixa', garcom: 'Garçom', cozinha: 'Cozinha' }[cargo] ?? cargo; }
+  function rotulo(cargo) { return { admin: 'Administrador', caixa: 'Caixa', garcom: 'Garçom', cozinha: 'Cozinha', proprietario: 'Proprietário' }[cargo] ?? cargo; }
 
   const display = raiz.querySelector('#pin-display');
   const btnOk = raiz.querySelector('#pin-ok');

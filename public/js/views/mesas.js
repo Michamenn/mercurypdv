@@ -4,6 +4,8 @@ import { ic } from '../icons.js';
 import { get, post, put, del, fmt, reaisParaCentavos, novaIdempotencia } from '../api.js';
 import { toast, modal, confirmar, escapar, pedirAutorizacaoAdmin } from '../ui.js';
 import { mostrarRecibo } from '../recibo.js';
+import { abrirContaDoPedido } from '../conta.js';
+import { abrirGorjeta } from '../gorjeta.js';
 import { seletorCombo } from './combos.js';
 import { anunciar } from '../a11y.js';
 import { tocarNovoPedido } from '../sound.js';
@@ -14,6 +16,9 @@ let modoLayout = false;        // arraste/redimensionamento das mesas
 let juntarAtivo = false;       // modo de seleção múltipla para junção
 let selecaoJuntar = new Set(); // ids marcados para junção
 let cfgSalao = {};             // configuração operacional (nomenclatura, check-in...)
+
+// Busca sem acento: "pao" encontra "Pão" (filtro local — instantâneo, sem debounce).
+const semAcento = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 export async function render(conteudo, _sub, estadoApp) {
   cancelarEventos?.();
@@ -587,6 +592,7 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
   let catalogoCache = null;
   const m = modal(`<div id="comanda-body">Carregando…</div>`, { aoFechar: () => atualizar(conteudo, estadoApp) });
   const corpo = m.caixa.querySelector('#comanda-body');
+  corpo.classList.add('painel-comanda');
   get('/catalogo').then((cat) => { catalogoCache = cat; desenhar(); });
 
   async function redesenhar() { const p = await get(`/pedidos/${pedido.id}`); pedido = p; desenhar(); }
@@ -594,41 +600,44 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
   function desenhar() {
     const t = pedido.totais;
     corpo.innerHTML = `
-      <h2>Comanda #${pedido.numero_dia ?? pedido.id} ${pedido.mesa_numero ? `· Mesa ${pedido.mesa_numero}` : ''} ${pedido.canal === 'viagem' ? '<span class="badge">' + ic('marmita') + ' viagem</span>' : ''} ${pedido.guardado ? '<span class="badge">⏸ guardada</span>' : ''}</h2>
-      <p style="color:var(--texto-fraco)">${escapar(pedido.comanda_nome ?? '')} · aberta ${new Date(pedido.aberto_em).toLocaleTimeString('pt-BR')}${pedido.observacao ? `<br>${ic('nota')} ${escapar(pedido.observacao)}` : ''}</p>
-      <div style="max-height:34vh;overflow:auto">
-        ${pedido.itens.map((i) => `
-          <div class="linha-itens" style="${i.status === 'cancelado' ? 'opacity:.45;text-decoration:line-through' : ''}">
-            <span>${i.quantidade}× ${escapar(i.nome_produto)}
-              ${i.variacao_nome ? `<br><small style="color:var(--texto-fraco)">${escapar(i.variacao_nome)}</small>` : ''}
-              ${i.adicionais ? `<br><small style="color:var(--texto-fraco)">+ ${escapar(i.adicionais)}</small>` : ''}
-              ${i.observacoes ? `<br><small style="color:var(--amarelo)">${ic('lapis')} ${escapar(i.observacoes)}</small>` : ''}
-              ${i.enviado_cozinha_em ? '<br><small class="badge">enviada à cozinha</small>' : '<br><small class="badge ok">local</small>'}
-            </span>
-            <span style="display:flex;gap:6px;align-items:center">
-              <strong style="font-family:var(--mono)">${fmt((i.preco_unit_centavos) * i.quantidade)}</strong>
-              ${i.status === 'ativo' ? `<button class="btn ghost" data-cancel="${i.id}" title="Cancelar item">${ic('x')}</button>` : ''}
-            </span>
-          </div>`).join('') || '<div class="vazio">Comanda vazia</div>'}
-      </div>
-      <p style="text-align:right;font-size:1.15rem">Total: <strong style="font-family:var(--mono);color:var(--ok)">${fmt(t.total_centavos)}</strong>
-        ${t.taxa_servico_centavos ? `· Taxa ${fmt(t.taxa_servico_centavos)}` : ''}
-        ${t.taxa_servico_centavos ? `<br><small style="color:var(--texto-fraco)">Subtotal ${fmt(t.subtotal_centavos ?? t.bruto_centavos)} + taxa ${fmt(t.taxa_servico_centavos)}</small>` : ''}
-        ${t.gorjeta_centavos ? `<br><small style="color:var(--amarelo)">${ic('presente')} Gorjeta ${fmt(t.gorjeta_centavos)} (não entra no total)</small>` : ''}
-        ${t.saldo_centavos > 0 ? `· Pendente: <span style="color:var(--acao)">${fmt(t.saldo_centavos)}</span>` : '· <span class="badge ok">QUITADA</span>'}</p>
-      <div id="divisao-box"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" data-a="add">+ Item</button>
-        <button class="btn" data-a="combo">${ic('presente')} Combo</button>
-        <button class="btn" data-a="cortesia">${ic('laco')} Cortesia</button>
-        <button class="btn primario" data-a="enviar">${ic('upload')} Encaminhar à cozinha</button>
-        ${estadoApp.permissoes.pode_dividir_pagar ? `<button class="btn ok" data-a="pagar">${ic('dinheiro')} Receber / Fechar</button>
-        <button class="btn" data-a="gorjeta">${ic('presente')} Gorjeta</button>` : ''}
-        <button class="btn" data-a="dividir">${ic('pessoas')} Dividir</button>
-        <button class="btn" data-a="conta">${ic('recibo')} Conta</button>
-        <button class="btn" data-a="guardar">${pedido.guardado ? '▶ Retomar' : '⏸ Guardar'}</button>
-        ${pedido.mesa_id ? '<button class="btn ghost" data-a="chamar">' + ic('sino') + ' Chamar</button>' : ''}
-        <button class="btn ghost" data-a="fechar">Fechar</button>
+      <div class="painel-comanda">
+        <div class="painel-comanda-topo">
+          <h2>Comanda #${pedido.numero_dia ?? pedido.id} ${pedido.mesa_numero ? `· Mesa ${pedido.mesa_numero}` : ''} ${pedido.canal === 'viagem' ? '<span class="badge">' + ic('marmita') + ' viagem</span>' : ''} ${pedido.guardado ? '<span class="badge">⏸ guardada</span>' : ''}</h2>
+          <p style="color:var(--texto-fraco)">${escapar(pedido.comanda_nome ?? '')} · aberta ${new Date(pedido.aberto_em).toLocaleTimeString('pt-BR')}${pedido.observacao ? `<br>${ic('nota')} ${escapar(pedido.observacao)}` : ''}</p>
+        </div>
+        <div class="painel-comanda-itens">
+          ${pedido.itens.map((i) => `
+              <div class="linha-itens" style="${i.status === 'cancelado' ? 'opacity:.45;text-decoration:line-through' : ''}">
+                <span>${i.quantidade}× ${escapar(i.nome_produto)}
+                  ${i.variacao_nome ? `<br><small style="color:var(--texto-fraco)">${escapar(i.variacao_nome)}</small>` : ''}
+                  ${i.adicionais ? `<br><small style="color:var(--texto-fraco)">+ ${escapar(i.adicionais)}</small>` : ''}
+                  ${i.observacoes ? `<br><small style="color:var(--amarelo)">${ic('lapis')} ${escapar(i.observacoes)}</small>` : ''}
+                  ${i.enviado_cozinha_em ? '<br><small class="badge">enviada à cozinha</small>' : '<br><small class="badge ok">local</small>'}
+                </span>
+                <span style="display:flex;gap:6px;align-items:center">
+                  <strong style="font-family:var(--mono)">${fmt((i.preco_unit_centavos) * i.quantidade)}</strong>
+                  ${i.status === 'ativo' ? `<button class="btn ghost" data-cancel="${i.id}" title="Cancelar item">${ic('x')}</button>` : ''}
+                </span>
+              </div>`).join('') || '<div class="vazio">Comanda vazia</div>'}
+        </div>
+        <div class="painel-comanda-rodape">
+          <p style="text-align:right;font-size:1.15rem">Total: <strong style="font-family:var(--mono);color:var(--ok)">${fmt(t.total_centavos)}</strong>
+            ${t.taxa_servico_centavos ? `· Taxa ${fmt(t.taxa_servico_centavos)}` : ''}
+            ${t.taxa_servico_centavos ? `<br><small style="color:var(--texto-fraco)">Subtotal ${fmt(t.subtotal_centavos ?? t.bruto_centavos)} + taxa ${fmt(t.taxa_servico_centavos)}</small>` : ''}
+            ${t.gorjeta_centavos ? `<br><small style="color:var(--amarelo)">${ic('presente')} Gorjeta ${fmt(t.gorjeta_centavos)} (não entra no total)</small>` : ''}
+            ${t.saldo_centavos > 0 ? `· Pendente: <span style="color:var(--acao)">${fmt(t.saldo_centavos)}</span>` : '· <span class="badge ok">QUITADA</span>'}</p>
+          <div id="divisao-box"></div>
+        </div>
+        <div class="painel-comanda-acoes">
+          <button class="btn" data-a="add">+ Item</button>
+          <button class="btn" data-a="combo">${ic('presente')} Combo</button>
+          <button class="btn primario" data-a="enviar">${ic('upload')} Encaminhar à cozinha</button>
+          ${estadoApp.permissoes.pode_dividir_pagar ? `<button class="btn ok larga" data-a="pagar">${ic('dinheiro')} Receber / Fechar</button>` : ''}
+          <button class="btn" data-a="dividir">${ic('pessoas')} Dividir</button>
+          <button class="btn" data-a="conta">${ic('recibo')} Conta</button>
+          <button class="btn" data-a="guardar">${pedido.guardado ? '▶ Retomar' : '⏸ Guardar'}</button>
+          <button class="btn ghost" data-a="fechar">Fechar</button>
+        </div>
       </div>`;
     corpo.querySelector('[data-a="fechar"]').onclick = m.fechar;
     corpo.querySelector('[data-a="add"]').onclick = () => seletorProduto();
@@ -636,7 +645,6 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
       const atualizado = await seletorCombo(pedido.id);
       if (atualizado) { pedido = atualizado; desenhar(); }
     };
-    corpo.querySelector('[data-a="cortesia"]').onclick = () => modalCortesia();
     corpo.querySelector('[data-a="dividir"]').onclick = () => modalDivisao();
     corpo.querySelector('[data-a="conta"]').onclick = () => mostrarConta();
     corpo.querySelector('[data-a="guardar"]').onclick = async () => {
@@ -644,12 +652,6 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
         const r = await post(`/pedidos/${pedido.id}/guardar`, { guardado: !pedido.guardado });
         toast(r.guardado ? 'Comanda guardada — retome quando quiser' : 'Comanda retomada', 'ok');
         await redesenhar();
-      } catch (e) { toast(e.message, 'erro'); }
-    };
-    corpo.querySelector('[data-a="chamar"]').onclick = async () => {
-      try {
-        await post(`/mesas/${pedido.mesa_id}/chamar`, { tipo: 'chamar' });
-        toast('Garçom chamado ', 'ok');
       } catch (e) { toast(e.message, 'erro'); }
     };
     carregarDivisao();
@@ -666,79 +668,9 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
     } catch { box.innerHTML = ''; }
   }
 
-  // Gorjeta: extra pago pelo cliente sobre a conta. NÃO altera o total da
-  // venda — entra apenas no cálculo da comissão do garçom.
-  function modalGorjeta() {
-    const rotulos = { dinheiro: 'Dinheiro', pix: 'PIX', cartao_debito: 'Débito', cartao_credito: 'Crédito', vale_refeicao: 'Vale' };
-    const padrao = pedido.atendente_nome || pedido.garcom_nome || '';
-    const m = modal(`<h2>${ic('presente')} Gorjeta</h2>
-      <p style="color:var(--texto-fraco)">Valor extra deixado pelo cliente <strong>sobre a conta</strong>. Não aumenta o total da venda — serve para a comissão do atendente.</p>
-      <label style="display:block"><small style="color:var(--texto-fraco)">Valor (ex: 10,00)</small>
-        <input id="valor" inputmode="decimal" placeholder="Valor" style="width:100%;padding:14px;font-size:1.2rem;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" /></label>
-      <div class="abas" style="margin-top:8px">
-        ${Object.entries(rotulos).map(([f, r]) => `<button class="btn ${f === 'dinheiro' ? 'ativa' : ''}" data-f="${f}">${r}</button>`).join('')}
-      </div>
-      <label style="display:block;margin-top:8px"><small style="color:var(--texto-fraco)">Atendente que recebeu</small>
-        <input id="garcom" value="${escapar(padrao)}" placeholder="Nome do garçom" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" /></label>
-      <input id="obs" placeholder="Observação (opcional)" style="width:100%;padding:12px;margin-top:8px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" />
-      <div style="display:flex;gap:10px;margin-top:12px"><button class="btn ghost" data-a="c">Cancelar</button><button class="btn ok grande" data-a="ok" style="flex:1">Registrar gorjeta</button></div>`);
-    m.caixa.querySelector('[data-a="c"]').onclick = m.fechar;
-    let forma = 'dinheiro';
-    m.caixa.querySelectorAll('[data-f]').forEach((b) => {
-      b.onclick = () => {
-        forma = b.dataset.f;
-        m.caixa.querySelectorAll('[data-f]').forEach((x) => x.classList.remove('ativa'));
-        b.classList.add('ativa');
-      };
-    });
-    m.caixa.querySelector('[data-a="ok"]').onclick = async () => {
-      const centavos = reaisParaCentavos(m.caixa.querySelector('#valor').value);
-      if (!centavos || centavos <= 0) { toast('Valor inválido', 'erro'); return; }
-      const nome = m.caixa.querySelector('#garcom').value.trim();
-      // Resolve o garçom pelo nome; sem isso, o servidor usa o atendente da comanda.
-      try {
-        const garcom = nome ? db_garcomPorNome(nome) : null;
-        const r = await post(`/pedidos/${pedido.id}/gorjeta`, {
-          valor_centavos: centavos,
-          forma,
-          observacao: m.caixa.querySelector('#obs').value.trim() || null,
-          garcom_id: garcom?.id ?? null,
-        });
-        m.fechar();
-        toast(`Gorjeta de ${fmt(centavos)} registrada`, 'ok');
-        await redesenhar();
-      } catch (e) { toast(e.message, 'erro'); }
-    };
-  }
+  // Gorjeta: o modal e o POST /pedidos/:id/gorjeta vivem em public/js/gorjeta.js
+  // (compartilhado com a tela de pagamento do PDV).
 
-  // Busca o garçom pelo nome via /auth/operadores (lista pública de operadores).
-  async function db_garcomPorNome(nome) {
-    try {
-      const ops = await get('/auth/operadores');
-      const achado = (ops?.operadores ?? ops ?? []).find((o) => String(o.nome).toLowerCase() === nome.toLowerCase());
-      return achado ? { id: achado.id } : null;
-    } catch { return null; }
-  }
-
-  function modalCortesia() {
-    if (!catalogoCache) { toast('Catálogo carregando…', 'erro'); return; }
-    const m = modal(`<h2>${ic('laco')} Cortesia (preço zero, auditada)</h2>
-      <select id="prod" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)">
-        ${catalogoCache.produtos.filter((p) => p.disponivel).map((p) => `<option value="${p.id}">${escapar(p.nome)} (${fmt(p.preco_centavos)})</option>`).join('')}
-      </select>
-      <input id="motivo" placeholder="Motivo (obrigatório)" style="width:100%;padding:12px;margin-top:8px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" />
-      <div style="display:flex;gap:10px;margin-top:12px"><button class="btn ghost" data-a="c">Cancelar</button><button class="btn primario" data-a="ok" style="flex:1">Aplicar cortesia</button></div>`);
-    m.caixa.querySelector('[data-a="c"]').onclick = m.fechar;
-    m.caixa.querySelector('[data-a="ok"]').onclick = async () => {
-      try {
-        await post(`/pedidos/${pedido.id}/cortesia`, {
-          produto_id: Number(m.caixa.querySelector('#prod').value),
-          motivo: m.caixa.querySelector('#motivo').value.trim(),
-        });
-        m.fechar(); toast('Cortesia aplicada', 'ok'); await redesenhar();
-      } catch (e) { toast(e.message, 'erro'); }
-    };
-  }
 
   function modalDivisao() {
     const ativos = pedido.itens.filter((i) => i.status === 'ativo');
@@ -787,35 +719,14 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
     recarregar();
   }
 
-  function mostrarConta() {
-    const t = pedido.totais;
-    const linhas = pedido.itens.map((i) => i.status === 'cancelado'
-      ? `${i.quantidade}x ${i.nome_produto} — CANCELADO`
-      : `${i.quantidade}x ${i.nome_produto}${i.variacao_nome ? ` (${i.variacao_nome})` : ''} — ${fmt(i.preco_unit_centavos * i.quantidade)}`).join('\n');
-    const pags = (pedido.pagamentos ?? []).filter((p) => !p.estornado).map((p) => `${p.forma}: ${fmt(p.valor_centavos)}`).join('\n') || '—';
-    const texto = `CONTA — Comanda #${pedido.numero_dia ?? pedido.id}${pedido.mesa_numero ? ` · Mesa ${pedido.mesa_numero}` : ''}\n${pedido.comanda_nome ?? ''}\n----------------------------------------\n${linhas}\n----------------------------------------\nSUBTOTAL  ${fmt(t.bruto_centavos)}\nDESCONTO  ${fmt(t.desconto_centavos)}\nTOTAL     ${fmt(t.total_centavos)}\nPAGO      ${fmt(t.pago_centavos)}\nPENDENTE  ${fmt(t.saldo_centavos)}\n----------------------------------------\n${pags}\nDocumento não fiscal — conferência. Sem taxa de serviço.`;
-    const m = modal(`<h2>${ic('recibo')} Conta consolidada</h2>
-      <pre class="recibo-preview">${escapar(texto)}</pre>
-      <div style="display:flex;gap:10px;margin-top:12px">
-        <button class="btn ghost" data-a="c">Fechar</button>
-        <button class="btn primario grande" data-a="p" style="flex:1">${ic('impressora')} Imprimir</button>
-      </div>`);
-    m.caixa.querySelector('[data-a="c"]').onclick = m.fechar;
-    m.caixa.querySelector('[data-a="p"]').onclick = () => {
-      let area = document.getElementById('area-impressao');
-      if (!area) { area = document.createElement('div'); area.id = 'area-impressao'; document.body.appendChild(area); }
-      area.innerHTML = `<pre class="recibo-preview" style="background:#fff;color:#000;border:none;width:80mm">${escapar(texto)}</pre>`;
-      window.print();
-    };
-  }
+  function mostrarConta() { return abrirContaDoPedido(pedido); }
     corpo.querySelector('[data-a="enviar"]').onclick = async () => {
       try { await post(`/pedidos/${pedido.id}/encaminhar`, {}); toast('Enviado à cozinha', 'ok'); anunciar(`Pedido ${pedido.id} encaminhado à cozinha.`, true); await redesenhar(); }
       catch (e) { toast(e.message, 'erro'); }
     };
     const pagarBtn = corpo.querySelector('[data-a="pagar"]');
     if (pagarBtn) pagarBtn.onclick = () => fluxoPagamentoComanda();
-    const gorjetaBtn = corpo.querySelector('[data-a="gorjeta"]');
-    if (gorjetaBtn) gorjetaBtn.onclick = () => modalGorjeta();
+
     corpo.querySelectorAll('[data-cancel]').forEach((b) => {
       b.onclick = async () => {
         const item = pedido.itens.find((i) => i.id === Number(b.dataset.cancel));
@@ -835,7 +746,7 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
           if (motivo.length < 3) { toast('Informe um motivo (mínimo 3 caracteres)', 'erro'); return; }
           dlg.fechar();
           let autorizacao = {};
-          if (item.enviado_cozinha_em && estadoApp.usuario.cargo !== 'admin') {
+          if (item.enviado_cozinha_em && estadoApp.usuario.cargo !== 'admin' && estadoApp.usuario.cargo !== 'proprietario') {
             const a = await pedirAutorizacaoAdmin({ titulo: 'Cancelar item já enviado' });
             if (!a) return;
             autorizacao = a;
@@ -852,17 +763,28 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
 
   function seletorProduto() {
     if (!catalogoCache) return;
+    let categoriaAtual = catalogoCache.categorias[0]?.id ?? null;
     const sub = modal(`<h2>Adicionar item</h2>
-      <div class="abas">${catalogoCache.categorias.map((c, ix) => `<button class="btn ${ix === 0 ? 'ativa' : ''}" data-c="${c.id}">${escapar(c.nome)}</button>`).join('')}</div>
+      <div class="campo-busca" style="margin-bottom:10px">
+        ${ic('lupa')}
+        <input id="busca-prod" class="campo" type="search" inputmode="search" enterkeyhint="search"
+          placeholder="Buscar produto…" aria-label="Buscar produto"
+          autocomplete="off" autocapitalize="none" spellcheck="false" />
+      </div>
+      <div class="abas">${catalogoCache.categorias.map((c) => `<button class="btn ${c.id === categoriaAtual ? 'ativa' : ''}" data-c="${c.id}">${escapar(c.nome)}</button>`).join('')}</div>
       <div class="grid-produtos" id="prods"></div>
       <div style="margin-top:12px;text-align:right"><button class="btn ghost" data-a="v">Voltar</button></div>`);
     const prods = sub.caixa.querySelector('#prods');
-    function mostrar(catId) {
-      prods.innerHTML = catalogoCache.produtos.filter((p) => p.categoria_id === catId).map((p) =>
-        `<button class="btn produto-btn" data-p="${p.id}"><span>${escapar(p.nome)}</span><span class="preco">${fmt(p.preco_centavos)}</span></button>`).join('');
+    const busca = sub.caixa.querySelector('#busca-prod');
+    const abas = [...sub.caixa.querySelectorAll('[data-c]')];
+
+    function pintar(lista) {
+      prods.innerHTML = lista.map((p) =>
+        `<button class="btn produto-btn" data-p="${p.id}"><span>${escapar(p.nome)}</span><span class="preco">${fmt(p.preco_centavos)}</span></button>`).join('')
+        || '<div class="vazio">Nenhum produto encontrado.</div>';
       prods.querySelectorAll('[data-p]').forEach((b) => {
         b.onclick = async () => {
-          const prod = catalogoCache.produtos.find((x) => x.id === Number(b.dataset.p));
+          const prod = lista.find((x) => x.id === Number(b.dataset.p));
           sub.fechar();
           try {
             await post(`/pedidos/${pedido.id}/itens`, { produto_id: prod.id, quantidade: 1 }, { idem: novaIdempotencia('item') });
@@ -872,9 +794,21 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
         };
       });
     }
-    mostrar(catalogoCache.categorias[0]?.id);
-    sub.caixa.querySelectorAll('[data-c]').forEach((b) => { b.onclick = () => mostrar(Number(b.dataset.c)); });
+
+    function render() {
+      const buscaAtiva = semAcento(busca.value.trim());
+      // Com busca ativa a categoria é ignorada: procura em todo o cardápio (nome ou apelido).
+      abas.forEach((b) => b.classList.toggle('ativa', !buscaAtiva && Number(b.dataset.c) === categoriaAtual));
+      pintar(buscaAtiva
+        ? catalogoCache.produtos.filter((p) => semAcento(p.nome).includes(buscaAtiva) || semAcento(p.apelidos).includes(buscaAtiva))
+        : catalogoCache.produtos.filter((p) => p.categoria_id === categoriaAtual));
+    }
+
+    busca.oninput = render;
+    abas.forEach((b) => { b.onclick = () => { categoriaAtual = Number(b.dataset.c); busca.value = ''; render(); }; });
     sub.caixa.querySelector('[data-a="v"]').onclick = sub.fechar;
+    render();
+    busca.focus();
   }
 
   async function fluxoPagamentoComanda() {
@@ -884,6 +818,7 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
     const sub = modal(`<h2>Recebimento — saldo ${fmt(t.saldo_centavos)}</h2>
       <div class="abas">${['dinheiro','pix','cartao_debito','cartao_credito','vale_refeicao'].map((f) => `<button class="btn" data-f="${f}">${rotulos[f]}</button>`).join('')}</div>
       <input id="valor" inputmode="decimal" placeholder="Valor (ex: 25,50)" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" />
+      ${estadoApp.permissoes.pode_dividir_pagar ? '<button class="btn" data-a="gorjeta" style="width:100%;margin-top:12px">Gorjeta (extra do atendente)</button>' : ''}
       <div style="display:flex;gap:10px;margin-top:12px"><button class="btn ghost" data-a="c">Voltar</button><button class="btn ok grande" data-a="ok">Registrar</button></div>`);
     let forma = null;
     const inputValor = sub.caixa.querySelector('#valor');
@@ -894,6 +829,12 @@ function abrirComandaModal(pedido, conteudo, estadoApp) {
       inputValor.placeholder = forma === 'dinheiro' ? 'Dinheiro entregue (ex: 200,00)' : 'Valor (ex: 25,50)';
     }; });
     sub.caixa.querySelector('[data-a="c"]').onclick = sub.fechar;
+    const gorjetaBtnSub = sub.caixa.querySelector('[data-a="gorjeta"]');
+    if (gorjetaBtnSub) gorjetaBtnSub.onclick = () => abrirGorjeta({
+      pedidoId: pedido.id,
+      nomePadrao: pedido.atendente_nome || pedido.garcom_nome || '',
+      aoRegistrar: redesenhar,
+    });
     sub.caixa.querySelector('[data-a="ok"]').onclick = async () => {
       if (!forma) { toast('Escolha a forma', 'erro'); return; }
       const digitado = reaisParaCentavos(inputValor.value);

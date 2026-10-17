@@ -6,9 +6,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { ROOT } from '../config.js';
 import { erro, handlerErros } from '../core/errors.js';
 import { autenticar, exigirPerm, guardaMutacao, verificarStepUpAdmin } from '../auth/rbac.js';
+import { ehGestao } from '../auth/cargos.js';
 import { limitarIP } from '../auth/ratelimit.js';
 import { criarSessao, revogarSessao, setCookieSessao, limparCookieSessao } from '../auth/sessions.js';
-import { login, criarPrimeiroAdmin, quantidadeUsuarios, autorizarAdmin, listarUsuarios, criarUsuario, alterarCredenciais, matrizPermissoes, salvarMatriz, desbloquearUsuario, listarSessoes, desconectarSessao, ROTULOS_PERMISSAO } from '../services/usuariosService.js';
+import { login, criarPrimeiroAdmin, quantidadeUsuarios, autorizarAdmin, listarUsuarios, criarUsuario, alterarCredenciais, excluirUsuario, restaurarUsuario, matrizPermissoes, salvarMatriz, desbloquearUsuario, listarSessoes, desconectarSessao, ROTULOS_PERMISSAO } from '../services/usuariosService.js';
 import * as caixa from '../services/caixaService.js';
 import * as pedidos from '../services/pedidosService.js';
 import * as estoque from '../services/estoqueService.js';
@@ -106,7 +107,9 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   });
 
   // ---------- Usuários (admin) ----------
-  r.get('/usuarios', auth, perm('pode_gerenciar_usuarios'), (_req, res) => res.json(listarUsuarios(db)));
+  // Usuários ATIVOS: quem foi excluído/desativado sai da tela (Pessoas → Usuários).
+  // O histórico completo (inclusive excluídos) fica no painel dev → Suporte técnico → Usuários.
+  r.get('/usuarios', auth, perm('pode_gerenciar_usuarios'), (_req, res) => res.json(listarUsuarios(db).filter((u) => u.ativo)));
   r.post('/usuarios', auth, guardaMutacao, perm('pode_gerenciar_usuarios'), (req, res, next) => {
     try { res.status(201).json(criarUsuario(db, req.usuario, req.body, req.ipCliente)); } catch (e) { next(e); }
   });
@@ -285,7 +288,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
     try {
       const p = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(Number(req.params.id));
       if (!p) throw erro.naoEncontrado('Pedido não encontrado.');
-      if (p.tipo === 'balcao' && !['admin', 'caixa'].includes(req.usuario.cargo)) throw erro.permissao();
+      if (p.tipo === 'balcao' && !(ehGestao(req.usuario.cargo) || req.usuario.cargo === 'caixa')) throw erro.permissao();
       if (p.tipo === 'mesa' && !exigePermLancarComanda(db, req.usuario)) throw erro.permissao();
       const comboId = Number(req.body?.combo_id);
       if (!comboId) throw erro.validacao('combo_id obrigatório.');
@@ -331,7 +334,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   r.post('/mesas/:id/chamar', auth, guardaMutacao, (req, res, next) => {
     try {
       const perms = db.prepare('SELECT pode_lancar_comanda FROM permissoes WHERE cargo = ?').get(req.usuario.cargo);
-      if (!perms?.pode_lancar_comanda && req.usuario.cargo !== 'admin') throw erro.permissao();
+      if (!perms?.pode_lancar_comanda && !ehGestao(req.usuario.cargo)) throw erro.permissao();
       res.status(201).json(catalogo.chamarGarcom(db, req.usuario, Number(req.params.id), req.body, req.ipCliente, hub));
     } catch (e) { next(e); }
   });
@@ -370,7 +373,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   r.post('/pedidos/:id/atendente', auth, guardaMutacao, (req, res, next) => {
     try {
       const perms = db.prepare('SELECT pode_lancar_comanda, pode_gerenciar_usuarios FROM permissoes WHERE cargo = ?').get(req.usuario.cargo);
-      if (!perms?.pode_lancar_comanda && !perms?.pode_gerenciar_usuarios && req.usuario.cargo !== 'admin') {
+      if (!perms?.pode_lancar_comanda && !perms?.pode_gerenciar_usuarios && !ehGestao(req.usuario.cargo)) {
         throw erro.permissao('Vincular atendente requer permissão de comandas.');
       }
       res.json(salao.definirAtendente(db, req.usuario, Number(req.params.id), req.body?.atendente_id, req.ipCliente, hub));
@@ -382,7 +385,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   r.get('/chamados', auth, (req, res, next) => {
     try {
       const perms = db.prepare('SELECT pode_lancar_comanda FROM permissoes WHERE cargo = ?').get(req.usuario.cargo);
-      if (!perms?.pode_lancar_comanda && !perms?.pode_avancar_kds && req.usuario.cargo !== 'admin' && req.usuario.cargo !== 'caixa') throw erro.permissao();
+      if (!perms?.pode_lancar_comanda && !perms?.pode_avancar_kds && !ehGestao(req.usuario.cargo) && req.usuario.cargo !== 'caixa') throw erro.permissao();
       res.json(catalogo.listarChamados(db));
     } catch (e) { next(e); }
   });
@@ -410,7 +413,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
       const p = db.prepare('SELECT tipo FROM pedidos WHERE id = ?').get(Number(req.params.id));
       if (!p) throw erro.naoEncontrado('Pedido não encontrado.');
       // balcão: caixa/admin; mesa: quem lança comanda (garçom/caixa/admin)
-      if (p.tipo === 'balcao' && !['admin', 'caixa'].includes(req.usuario.cargo)) throw erro.permissao();
+      if (p.tipo === 'balcao' && !(ehGestao(req.usuario.cargo) || req.usuario.cargo === 'caixa')) throw erro.permissao();
       if (p.tipo === 'mesa' && !exigePermLancarComanda(db, req.usuario)) throw erro.permissao();
       const key = req.headers['idempotency-key'] ?? req.body?.idempotency_key ?? null;
       res.status(201).json(pedidos.adicionarItem(db, req.usuario, Number(req.params.id), req.body, key ? String(key).slice(0, 100) : null, req.ipCliente, hub));
@@ -420,7 +423,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
     try {
       const p = db.prepare('SELECT tipo FROM pedidos WHERE id = ?').get(Number(req.params.id));
       if (!p) throw erro.naoEncontrado('Pedido não encontrado.');
-      if (p.tipo === 'balcao' && !['admin', 'caixa'].includes(req.usuario.cargo)) throw erro.permissao();
+      if (p.tipo === 'balcao' && !(ehGestao(req.usuario.cargo) || req.usuario.cargo === 'caixa')) throw erro.permissao();
       if (p.tipo === 'mesa' && !exigePermLancarComanda(db, req.usuario)) throw erro.permissao();
       res.json(pedidos.encaminhar(db, req.usuario, Number(req.params.id), req.ipCliente, hub));
     } catch (e) { next(e); }
@@ -430,7 +433,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
       const item = db.prepare('SELECT enviado_cozinha_em, pedido_id FROM pedido_itens WHERE id = ?').get(Number(req.params.itemId));
       if (!item) throw erro.naoEncontrado('Item não encontrado.');
       let stepUpAdminId = null;
-      if (item.enviado_cozinha_em && req.usuario.cargo !== 'admin') {
+      if (item.enviado_cozinha_em && !ehGestao(req.usuario.cargo)) {
         stepUpAdminId = verificarStepUpAdmin(db, crypto, pepper, req.body, { usuarioExecutorId: req.usuario.id });
       }
       res.json(pedidos.cancelarItem(db, req.usuario, Number(req.params.itemId), req.body?.motivo, req.ipCliente, hub, stepUpAdminId));
@@ -455,7 +458,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   r.post('/pagamentos/:id/estornar', auth, guardaMutacao, (req, res, next) => {
     try {
       let stepUpAdminId = null;
-      if (req.usuario.cargo !== 'admin') {
+      if (!ehGestao(req.usuario.cargo)) {
         stepUpAdminId = verificarStepUpAdmin(db, crypto, pepper, req.body, { usuarioExecutorId: req.usuario.id });
       }
       res.json(pedidos.estornarPagamento(db, req.usuario, Number(req.params.id), req.body?.motivo, req.ipCliente, hub, stepUpAdminId));
@@ -543,7 +546,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
     try {
       const sessao = caixa.exigirCaixaAberto(db);
       let autorizadoPor = null;
-      if (req.usuario.cargo !== 'admin') {
+      if (!ehGestao(req.usuario.cargo)) {
         autorizadoPor = verificarStepUpAdmin(db, crypto, pepper, req.body, { usuarioExecutorId: req.usuario.id });
       }
       res.status(201).json(caixa.movimentar(db, sessao, req.usuario, req.body, autorizadoPor, req.ipCliente, hub));
@@ -649,7 +652,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   // ---------- Configurações ----------
   r.get('/config', auth, (req, res) => {
     const todas = configService.obterTodas(db);
-    if (req.usuario.cargo !== 'admin') {
+    if (!ehGestao(req.usuario.cargo)) {
       // não-admin vê apenas o necessário para operação
       return res.json({ empresa_nome: todas.empresa_nome, recibo_largura_mm: todas.recibo_largura_mm, modulo_kds: todas.modulo_kds, modulo_comanda: todas.modulo_comanda, bloquear_apos_venda: todas.bloquear_apos_venda,
         tema_padrao: todas.tema_padrao, fonte_padrao: todas.fonte_padrao, densidade_padrao: todas.densidade_padrao,
@@ -783,8 +786,10 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
     }));
   });
 
-  // ---------- Painel do desenvolvedor (DIV-005: admin + reauth de senha, sem senha mestra) ----------
-  r.post('/admin/dev', auth, guardaMutacao, perm('pode_config_sistema'), (req, res, next) => {
+  // ---------- Painel do desenvolvedor (DIV-005: reauth de senha, sem senha mestra) ----------
+  // O acesso é controlado pela flag pode_painel_dev (admin = 1; Proprietário = 0),
+  // e ainda exige step-up de gestor (admin ou Proprietário).
+  r.post('/admin/dev', auth, guardaMutacao, perm('pode_painel_dev'), (req, res, next) => {
     try {
       verificarStepUpAdmin(db, crypto, pepper, req.body, { usuarioExecutorId: req.usuario.id });
       const cfgTodas = configService.obterTodas(db);
@@ -804,6 +809,25 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
         versao: '1.3.1',
       };
       res.json({ diagnostico: stats });
+    } catch (e) { next(e); }
+  });
+
+  // Painel dev → exclusão de usuário (exclusão lógica com step-up de gestor).
+  // Mesmo portão do painel dev (pode_painel_dev) + reautenticação de admin/Proprietário.
+  r.get('/admin/dev/usuarios', auth, perm('pode_painel_dev'), (_req, res) => {
+    res.json({ usuarios: listarUsuarios(db) });
+  });
+  r.post('/admin/dev/usuarios/:id/excluir', auth, guardaMutacao, perm('pode_painel_dev'), (req, res, next) => {
+    try {
+      verificarStepUpAdmin(db, crypto, pepper, req.body, { usuarioExecutorId: req.usuario.id });
+      res.json(excluirUsuario(db, req.usuario, req.params.id, req.ipCliente));
+    } catch (e) { next(e); }
+  });
+  // Desfaz a exclusão lógica (a tela Pessoas → Usuários só mostra ativos).
+  r.post('/admin/dev/usuarios/:id/restaurar', auth, guardaMutacao, perm('pode_painel_dev'), (req, res, next) => {
+    try {
+      verificarStepUpAdmin(db, crypto, pepper, req.body, { usuarioExecutorId: req.usuario.id });
+      res.json(restaurarUsuario(db, req.usuario, req.params.id, req.ipCliente));
     } catch (e) { next(e); }
   });
 

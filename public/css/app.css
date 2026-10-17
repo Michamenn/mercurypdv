@@ -283,13 +283,35 @@ table.dados td.num { font-family: var(--mono); font-variant-numeric: tabular-num
   max-height: 86vh;
   animation: m-folha-sobe 200ms ease-out;
 }
+
+/* Painel lateral em telas grandes (o mobile continua como folha inferior). */
+.modal.conta-lateral {
+  position: fixed;
+  top: var(--space-3);
+  right: var(--space-3);
+  bottom: auto; /* painel compacto: acompanha o conteúdo (não ocupa a tela toda) */
+  left: auto;
+  width: min(430px, calc(100vw - 48px));
+  max-height: calc(100vh - var(--space-6));
+  border-radius: var(--radius-lg);
+  padding-bottom: var(--space-4);
+  animation: none;
+}
 .modal.bottom-sheet::before { /* handle visual de arraste */
   content: ''; display: block; width: 44px; height: 5px; border-radius: 999px;
   background: var(--borda); margin: 0 auto var(--space-3);
 }
 @keyframes m-folha-sobe { from { transform: translateY(28px); opacity: .5; } }
 .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); margin-top: var(--space-3); }
-.numpad .btn { min-height: var(--numpad-btn); font-size: var(--text-lg); }
+
+
+.numpad .btn {
+  min-height: var(--numpad-btn);
+  font-size: var(--text-lg);
+}
+/* .numpad-qtd removido: a quantidade agora usa .qtd-stepper */
+
+
 .display-valor { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--text-xl); text-align: right; padding: var(--space-2) var(--space-3); background: var(--canvas); border: 1px solid var(--borda); border-radius: var(--radius-md); }
 
 /* toasts */
@@ -309,6 +331,24 @@ table.dados td.num { font-family: var(--mono); font-variant-numeric: tabular-num
 
 /* recibo */
 .recibo-preview { background: #fff; color: #000; font-family: var(--mono); padding: 10px; border-radius: 6px; white-space: pre-wrap; font-size: 12px; }
+/* Conta (conferência): papel BRANCO LISO com letras PRETAS (não segue o tema escuro).
+   Sem grade/quadriculado; fonte maior que a do recibo impresso.
+   A impressão continua pelo #area-impressao (recibo-preview em fundo branco). */
+.conta-quadriculado {
+  border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; max-height: 42vh; overflow: auto;
+  background: #ffffff;
+  color: #111111;
+  container-type: inline-size; /* permite a fonte se ajustar à largura do papel */
+}
+.conta-quadriculado .recibo-preview {
+  background: transparent; padding: 0; border-radius: 0; color: #000;
+  line-height: 1.5;
+  /* fonte o maior possível SEM quebrar linha: papel ÷ (colunas × largura do caractere) */
+  font-size: clamp(10.5px, calc(100cqw / (var(--cols, 40) * 0.62)), 15px);
+}
+.conta-acoes { display: flex; gap: 10px; margin-top: 14px; }
+.conta-acoes .btn.ghost { flex: 0 0 auto; }
+.conta-acoes .btn.primario { flex: 1; }
 @media print {
   body * { visibility: hidden; }
   #area-impressao, #area-impressao * { visibility: visible; }
@@ -821,3 +861,19 @@ html.tema-premium h2 { letter-spacing: -.01em; }
   .sino-painel { position: fixed; left: 8px; right: 8px; top: 64px; width: auto; }
   .sync-dispositivos { display: none; }
 }
+
+/* Painel de comanda com altura fixa (rolagem apenas na lista de itens) */
+.painel-comanda { display: flex; flex-direction: column; height: min(84vh, 680px); }
+.modal.painel-comanda { overflow: hidden; }
+.painel-comanda-topo { flex: 0 0 auto; }
+.painel-comanda-rodape { flex: 0 0 auto; padding-top: 4px; }
+.painel-comanda-itens { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.painel-comanda-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; flex: 0 0 auto; }
+.painel-comanda-acoes .btn { width: 100%; min-height: var(--touch-min); }
+.painel-comanda-acoes .btn.larga { grid-column: 1 / -1; }
+
+/* Modal estreito do lancamento de quantidade + stepper */
+.modal.modal-quantidade { width: min(360px, 100%); }
+.qtd-stepper { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 14px 0; }
+.qtd-stepper .btn { min-width: 56px; min-height: var(--touch-min); font-size: 1.25rem; }
+.qtd-stepper input { width: 88px; min-height: var(--touch-min); text-align: center; font-size: 1.35rem; padding: 8px; background: var(--canvas); border-radius: 10px; border: 1px solid var(--borda); color: var(--texto); }

@@ -4,7 +4,9 @@ import { ic } from '../icons.js';
 import { get, post, fmt, novaIdempotencia } from '../api.js';
 import { toast, modal, confirmar, escapar } from '../ui.js';
 import { guardarCatalogo, lerCatalogo } from '../offdb.js';
+import { abrirConta } from '../conta.js';
 import { aoEstado } from '../ws.js';
+
 import { anunciar } from '../a11y.js';
 
 let catalogo = { categorias: [], produtos: [] };
@@ -371,6 +373,7 @@ function verCarrinho(conteudo, estadoApp) {
     <div class="m-carrinho-lista" id="folha-lista"></div>
     <p style="text-align:right;font-size:1.3rem;margin-bottom:0">Total: <strong data-papel="folha-total" style="font-family:var(--mono);color:var(--ok)">${fmt(total())}</strong></p>
     <button class="btn primario grande btn-full-lg" data-papel="enviar" data-a="enviar" ${carrinho.length ? '' : 'disabled'}>Enviar pedido</button>
+    <button class="btn btn-full" data-a="conta" ${carrinho.length ? '' : 'disabled'}>${ic('recibo')} Conta</button>
     <button class="btn ghost btn-full" data-a="voltar">Continuar vendendo</button>`, { folha: true });
   const listaEl = m.caixa.querySelector('#folha-lista');
 
@@ -434,6 +437,13 @@ function verCarrinho(conteudo, estadoApp) {
   renderLista();
   m.caixa.querySelector('[data-a="voltar"]').onclick = m.fechar;
   m.caixa.querySelector('[data-a="enviar"]').onclick = () => { m.fechar(); enviar(conteudo, estadoApp); };
+  const btnConta = m.caixa.querySelector('[data-a="conta"]');
+  if (btnConta) btnConta.onclick = () => abrirConta({
+    titulo: 'Venda rápida',
+    subtitulo: modalidade === 'viagem' ? 'Para viagem' : '',
+    itens: carrinho.map((i) => ({ quantidade: i.quantidade, nome: i.nome, detalhe: i.observacoes || '', unit_centavos: i.preco, total_centavos: i.preco * i.quantidade })),
+    totais: { total_centavos: total() },
+  });
   refletirConexao(); // o Enviar da folha também reflete o estado do WS
 }
 

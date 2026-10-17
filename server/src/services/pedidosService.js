@@ -9,6 +9,7 @@ import { disponibilidadeVenda } from './estoqueService.js';
 import { promocaoVigente } from './promocoesService.js';
 import { obterTodas } from './configService.js';
 import * as notificacoes from './notificacoesService.js';
+import { ehGestao } from '../auth/cargos.js';
 
 export const FORMAS = ['dinheiro', 'pix', 'cartao_debito', 'cartao_credito', 'vale_refeicao'];
 const KDS_ORDEM = { pendente: 0, preparando: 1, pronto: 2, entregue: 3 };
@@ -440,9 +441,9 @@ export function cancelarItem(db, usuario, itemId, motivo, ip, hub, stepUpAdminId
 
   const jaEnviado = item.enviado_cozinha_em !== null;
   if (jaEnviado) {
-    // Matriz: caixa "requer senha admin"; garçom NÃO pode após envio; admin direto sim.
+    // Matriz: caixa "requer senha admin"; garçom NÃO pode após envio; admin/Proprietário direto sim.
     if (usuario.cargo === 'garcom') throw erro.permissao('Garçom não pode cancelar item já enviado à cozinha.');
-    if (usuario.cargo !== 'admin' && !stepUpAdminId) {
+    if (!ehGestao(usuario.cargo) && !stepUpAdminId) {
       throw erro.permissao('Cancelamento de item já enviado exige autorização de administrador.');
     }
   }
@@ -562,7 +563,7 @@ export function estornarPagamento(db, usuario, pagamentoId, motivo, ip, hub, ste
   const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pg.pedido_id);
   if (!pedido || pedido.status !== 'aberto') throw erro.conflito('409_CONFLITO_ESTADO', 'Estorno só é permitido com pedido ainda aberto.');
   if (pg.estornado) throw erro.conflito('409_CONFLITO_ESTADO', 'Pagamento já estornado.');
-  if (usuario.cargo !== 'admin' && !stepUpAdminId) throw erro.permissao('Estorno exige autorização de administrador.');
+  if (!ehGestao(usuario.cargo) && !stepUpAdminId) throw erro.permissao('Estorno exige autorização de administrador.');
   transacao(db, () => {
     db.prepare('UPDATE pagamentos SET estornado = 1, estornado_em = ?, estorno_motivo = ?, estornado_por = ? WHERE id = ?')
       .run(agoraISO(), String(motivo).trim().slice(0, 300), stepUpAdminId ?? usuario.id, pagamentoId);
@@ -728,6 +729,7 @@ export function obter(db, pedidoId) {
   if (!p.id) throw erro.naoEncontrado('Pedido não encontrado.');
   p.itens = db.prepare(
     `SELECT i.*, i.status AS status,
+            COALESCE((SELECT SUM(a.preco_centavos * a.quantidade) FROM pedido_item_adicionais a WHERE a.item_id = i.id), 0) AS adicionais_centavos,
             COALESCE((SELECT GROUP_CONCAT(a.nome || ' (x' || a.quantidade || ')', ', ') FROM pedido_item_adicionais a WHERE a.item_id = i.id), '') AS adicionais,
             cu.nome AS cancelado_por_nome
      FROM pedido_itens i LEFT JOIN usuarios cu ON cu.id = i.cancelado_por

@@ -23,7 +23,7 @@ const TELAS_ORIGINAIS = [
   ['tema', 'pode_config_sistema'],
   ['backups', 'pode_backup'],
   ['auditoria', 'pode_gerenciar_usuarios'],
-  ['dev', 'pode_config_sistema'],
+  ['dev', 'pode_painel_dev'],
 ];
 
 // Telas acrescentadas na 1.3.1 (impressão térmica e sessões ativas).

@@ -105,7 +105,7 @@ async function atualizar(conteudo, estadoApp) {
 
   const mov = (tipo) => async () => {
     let autorizacao = {};
-    if (estadoApp.usuario.cargo !== 'admin') {
+    if (estadoApp.usuario.cargo !== 'admin' && estadoApp.usuario.cargo !== 'proprietario') {
       const a = await pedirAutorizacaoAdmin({ titulo: tipo === 'sangria' ? 'Sangria — autorização' : 'Suprimento — autorização' });
       if (!a) return;
       autorizacao = a;

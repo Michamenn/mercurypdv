@@ -12,11 +12,15 @@ import { toast, modal, confirmar, escapar } from '../ui.js';
 import { seletorCombo } from './combos.js';
 import { aoEvento } from '../ws.js';
 import { anunciar } from '../a11y.js';
+import { abrirContaDoPedido } from '../conta.js';
 import { novaIdempotencia } from '../api.js';
 
 let cancelarEventos = null;
 let filtro = 'todas';
 let termo = '';
+
+// Busca sem acento: "pao" encontra "Pão" (filtro local — instantâneo, sem debounce).
+const semAcento = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 const FILTROS = [
   ['todas', 'Todas', null],
@@ -247,6 +251,7 @@ async function acao(tipo, p, conteudo, estadoApp) {
 async function detalhe(p, conteudo, estadoApp, rotulo, abaInicial = 'itens') {
   const m = modal(`<div id="cm-det">Carregando…</div>`, { aoFechar: () => carregar(conteudo, estadoApp) });
   const corpo = m.caixa.querySelector('#cm-det');
+  corpo.classList.add('painel-comanda');
 
   const desenhar = async () => {
     let atual = p;
@@ -257,14 +262,16 @@ async function detalhe(p, conteudo, estadoApp, rotulo, abaInicial = 'itens') {
     const podeLancar = !!estadoApp.permissoes.pode_lancar_comanda;
 
     corpo.innerHTML = `
-      <h2>${ic('recibo')} ${escapar(nome)}</h2>
-      <p style="color:var(--texto-fraco)">
-        ${atual.tipo === 'mesa' ? `${rotulo ?? 'Mesa'} ${atual.mesa_numero ?? ''} · ` : 'Balcão · '}
-        aberta ${tempoDesde(atual.aberto_em)} atrás · ${escapar(atual.garcom_nome ?? 'sem garçom')}
-      </p>
-      ${atual.observacao ? `<p class="cm-obs">${ic('lapis')} ${escapar(atual.observacao)}</p>` : ''}
+      <div class="painel-comanda-topo">
+        <h2>${ic('recibo')} ${escapar(nome)}</h2>
+        <p style="color:var(--texto-fraco)">
+          ${atual.tipo === 'mesa' ? `${rotulo ?? 'Mesa'} ${atual.mesa_numero ?? ''} · ` : 'Balcão · '}
+          aberta ${tempoDesde(atual.aberto_em)} atrás · ${escapar(atual.garcom_nome ?? 'sem garçom')}
+        </p>
+        ${atual.observacao ? `<p class="cm-obs">${ic('lapis')} ${escapar(atual.observacao)}</p>` : ''}
+      </div>
 
-      <div class="cm-itens">
+      <div class="painel-comanda-itens">
         ${atual.itens.map((i) => `<div class="linha-itens ${i.status === 'cancelado' ? 'cm-cancelado' : ''}">
           <span>${i.quantidade}× ${escapar(i.nome_produto)}
             ${i.variacao_nome ? `<br><small style="color:var(--texto-fraco)">${escapar(i.variacao_nome)}</small>` : ''}
@@ -280,29 +287,34 @@ async function detalhe(p, conteudo, estadoApp, rotulo, abaInicial = 'itens') {
         </div>`).join('') || '<div class="vazio">Comanda vazia</div>'}
       </div>
 
-      <div class="cm-totais">
+      <div class="painel-comanda-rodape">
+        <div class="cm-totais">
         <div><span>Subtotal</span><span class="mono">${fmt(t.subtotal_centavos ?? t.bruto_centavos)}</span></div>
         ${t.taxa_servico_centavos ? `<div><span>Taxa de serviço</span><span class="mono">${fmt(t.taxa_servico_centavos)}</span></div>` : ''}
         <div class="cm-total"><span>Total</span><span class="mono">${fmt(t.total_centavos)}</span></div>
         ${quitada ? '<div><span class="badge ok">Quitada</span></div>'
           : `<div class="cm-falta"><span>Falta</span><span class="mono">${fmt(t.saldo_centavos)}</span></div>`}
+        </div>
       </div>
 
-      <div class="cm-acoes">
+      <div class="painel-comanda-acoes">
         ${podeLancar ? `<button class="btn" data-d="item">${ic('presente')} Item</button>` : ''}
         ${podeLancar ? `<button class="btn" data-d="combo">${ic('presente')} Combo</button>` : ''}
         ${podeLancar ? `<button class="btn" data-d="encaminhar">${ic('upload')} Cozinha</button>` : ''}
+        <button class="btn" data-d="conta">${ic('recibo')} Conta</button>
         <button class="btn" data-d="guardar">${atual.guardado ? '▶ Retomar' : '⏸ Guardar'}</button>
         ${estadoApp.permissoes.pode_dividir_pagar && !quitada
-          ? `<button class="btn ok" data-d="pagar">${ic('dinheiro')} Receber</button>` : ''}
+          ? `<button class="btn ok larga" data-d="pagar">${ic('dinheiro')} Receber</button>` : ''}
         ${estadoApp.permissoes.pode_dividir_pagar && quitada
-          ? `<button class="btn ok" data-d="fechar">${ic('check')} Fechar conta</button>` : ''}
+          ? `<button class="btn ok larga" data-d="fechar">${ic('check')} Fechar conta</button>` : ''}
       </div>
       <button class="btn ghost" data-d="voltar" style="width:100%;margin-top:8px">Voltar</button>`;
 
     const recarregar = async () => { await desenhar(); };
 
     corpo.querySelector('[data-d="voltar"]').onclick = m.fechar;
+    const btnConta = corpo.querySelector('[data-d="conta"]');
+    if (btnConta) btnConta.onclick = () => abrirContaDoPedido(atual);
     corpo.querySelector('[data-d="item"]')?.addEventListener('click', async () => {
       const catalogo = await get('/catalogo');
       seletorItem(catalogo, async (item) => {
@@ -378,43 +390,55 @@ async function detalhe(p, conteudo, estadoApp, rotulo, abaInicial = 'itens') {
 function seletorItem(catalogo, aoEscolher) {
   let categoria = catalogo.categorias[0]?.id ?? null;
   const m = modal(`<h2>Adicionar item</h2>
+    <div class="campo-busca" style="margin-bottom:10px">
+      ${ic('lupa')}
+      <input id="cm-busca" class="campo" type="search" inputmode="search" enterkeyhint="search"
+        placeholder="Buscar produto…" aria-label="Buscar produto"
+        autocomplete="off" autocapitalize="none" spellcheck="false" />
+    </div>
     <div class="abas">${catalogo.categorias.map((c) => `<button class="btn ${c.id === categoria ? 'ativa' : ''}" data-c="${c.id}">${escapar(c.nome)}</button>`).join('')}</div>
     <div class="grid-produtos" id="cm-prods"></div>
     <button class="btn ghost" data-a="v" style="width:100%;margin-top:10px">Voltar</button>`);
 
+  const grade = m.caixa.querySelector('#cm-prods');
+  const busca = m.caixa.querySelector('#cm-busca');
+  const abas = [...m.caixa.querySelectorAll('[data-c]')];
+
   const mostrar = () => {
-    m.caixa.querySelector('#cm-prods').innerHTML = catalogo.produtos
-      .filter((p) => p.categoria_id === categoria && p.disponivel)
+    const buscaAtiva = semAcento(busca.value.trim());
+    // Com busca ativa a categoria é ignorada: procura em todo o cardápio (nome ou apelido).
+    abas.forEach((b) => b.classList.toggle('ativa', !buscaAtiva && Number(b.dataset.c) === categoria));
+    const lista = catalogo.produtos.filter((p) => p.disponivel && (buscaAtiva
+      ? semAcento(p.nome).includes(buscaAtiva) || semAcento(p.apelidos).includes(buscaAtiva)
+      : p.categoria_id === categoria));
+    grade.innerHTML = lista
       .map((p) => `<button class="btn produto-btn" data-p="${p.id}"><span>${escapar(p.nome)}</span><span class="preco">${fmt(p.preco_centavos)}</span></button>`)
-      .join('') || '<div class="vazio">Nenhum produto nesta categoria.</div>';
-    m.caixa.querySelectorAll('[data-p]').forEach((b) => {
+      .join('') || `<div class="vazio">${buscaAtiva ? 'Nenhum produto encontrado.' : 'Nenhum produto nesta categoria.'}</div>`;
+    grade.querySelectorAll('[data-p]').forEach((b) => {
       b.onclick = () => {
-        const prod = catalogo.produtos.find((x) => x.id === Number(b.dataset.p));
+        const prod = lista.find((x) => x.id === Number(b.dataset.p));
         m.fechar();
         escolherQuantidade(prod, aoEscolher);
       };
     });
   };
-  mostrar();
-  m.caixa.querySelectorAll('[data-c]').forEach((b) => {
-    b.onclick = () => {
-      categoria = Number(b.dataset.c);
-      m.caixa.querySelectorAll('[data-c]').forEach((x) => x.classList.remove('ativa'));
-      b.classList.add('ativa');
-      mostrar();
-    };
+
+  busca.oninput = mostrar;
+  abas.forEach((b) => {
+    b.onclick = () => { categoria = Number(b.dataset.c); busca.value = ''; mostrar(); };
   });
   m.caixa.querySelector('[data-a="v"]').onclick = m.fechar;
+  mostrar();
+  busca.focus();
 }
 
 function escolherQuantidade(prod, aoEscolher) {
-  let qtd = 1;
   const m = modal(`<h2>${escapar(prod.nome)}</h2>
     <p class="mono" style="font-size:1.2rem;color:var(--ok)">${fmt(prod.preco_centavos)}</p>
-    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin:14px 0">
-      <button class="btn grande" data-q="-1" aria-label="Diminuir">−</button>
-      <strong id="cm-qtd" style="font-size:1.6rem;min-width:56px;text-align:center">1</strong>
-      <button class="btn grande" data-q="1" aria-label="Aumentar">＋</button>
+    <div class="qtd-stepper">
+      <button type="button" class="btn" data-q="-1" aria-label="Diminuir">−</button>
+      <input id="cm-qtd" type="number" min="1" max="999" value="1" inputmode="numeric" aria-label="Quantidade" />
+      <button type="button" class="btn" data-q="1" aria-label="Aumentar">＋</button>
     </div>
     <input id="cm-obs" placeholder="Observação (opcional)"
       style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" />
@@ -422,18 +446,22 @@ function escolherQuantidade(prod, aoEscolher) {
       <button class="btn ghost" data-a="c">Cancelar</button>
       <button class="btn ok grande" data-a="ok" style="flex:1">Adicionar</button>
     </div>`);
+  m.caixa.classList.add('modal-quantidade');
+  const input = m.caixa.querySelector('#cm-qtd');
   m.caixa.querySelectorAll('[data-q]').forEach((b) => {
     b.onclick = () => {
-      qtd = Math.min(99, Math.max(1, qtd + Number(b.dataset.q)));
-      m.caixa.querySelector('#cm-qtd').textContent = qtd;
+      const delta = Number(b.dataset.q);
+      let val = Math.min(999, Math.max(1, Number(input.value) + delta));
+      input.value = val;
     };
   });
   m.caixa.querySelector('[data-a="c"]').onclick = m.fechar;
   m.caixa.querySelector('[data-a="ok"]').onclick = () => {
+    const quantidade = Math.max(1, Math.min(999, Number(input.value) || 1));
     m.fechar();
     aoEscolher({
       produto_id: prod.id,
-      quantidade: qtd,
+      quantidade,
       observacoes: m.caixa.querySelector('#cm-obs').value.trim() || null,
     });
   };

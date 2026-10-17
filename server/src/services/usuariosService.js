@@ -6,6 +6,7 @@ import { registrar } from '../core/audit.js';
 import { texto } from '../core/validate.js';
 import { transacao, agoraISO } from '../db/connection.js';
 import { config } from '../config.js';
+import { CARGOS_GESTAO, CARGOS_VALIDOS, ehAdmin } from '../auth/cargos.js';
 
 // ---------- Bootstrap: 1º admin apenas com 0 usuários (nada de credencial padrão) ----------
 export function quantidadeUsuarios(db) {
@@ -67,12 +68,15 @@ export function login(db, body, ip, userAgent) {
   };
 }
 
-// Reautenticação (step-up) do próprio admin logado OU de outro admin — usada em operações sensíveis.
+// Reautenticação (step-up) do próprio admin logado OU de outro admin/Proprietário
+// — usada em operações sensíveis. O Proprietário autoriza sozinho, igual ao admin.
 export function autorizarAdmin(db, body, ip) {
   const nome = texto(body?.admin_usuario, 'admin_usuario', { minimo: 1, maximo: 60 });
   const senha = typeof body?.admin_senha === 'string' ? body.admin_senha : '';
   if (!senha) throw erro.permissao('Senha de administrador obrigatória.');
-  const admin = db.prepare(`SELECT * FROM usuarios WHERE nome = ? AND cargo = 'admin' AND ativo = 1`).get(nome);
+  const marcadores = CARGOS_GESTAO.map(() => '?').join(', ');
+  const admin = db.prepare(`SELECT * FROM usuarios WHERE nome = ? AND cargo IN (${marcadores}) AND ativo = 1`)
+    .get(nome, ...CARGOS_GESTAO);
   const ok = admin?.senha_hash ? verificarSegredo(senha, admin.senha_hash, config.pepper) : false;
   if (!admin || !ok) {
     if (admin) registrarFalhaLogin(db, admin.id);
@@ -85,6 +89,15 @@ export function autorizarAdmin(db, body, ip) {
 }
 
 // ---------- CRUD de usuários (admin) ----------
+// Trava anti-escalada: só um Administrador (cargo 'admin') gerencia contas de
+// Administrador. O Proprietário tem pode_gerenciar_usuarios, mas não pode criar
+// admin, elevar alguém a admin, nem editar/desativar/resetar/desbloquear admin.
+function exigirAdminDoSistema(executor) {
+  if (!ehAdmin(executor?.cargo)) {
+    throw erro.permissao('Apenas um Administrador pode gerenciar contas de Administrador.');
+  }
+}
+
 export function listarUsuarios(db) {
   return db.prepare(
     `SELECT u.id, u.nome, u.cargo, u.ativo, u.ultimo_login, u.criado_em,
@@ -96,11 +109,13 @@ export function listarUsuarios(db) {
 
 export function criarUsuario(db, adminExecutor, body, ip) {
   const nome = texto(body?.nome, 'nome', { minimo: 3, maximo: 60 });
-  const cargo = ['admin', 'caixa', 'garcom', 'cozinha'].includes(body?.cargo) ? body.cargo : null;
-  if (!cargo) throw erro.validacao('Cargo deve ser: admin, caixa, garcom ou cozinha.');
+  const cargo = CARGOS_VALIDOS.includes(body?.cargo) ? body.cargo : null;
+  if (!cargo) throw erro.validacao('Cargo deve ser: admin, proprietario, caixa, garcom ou cozinha.');
   const pin = typeof body?.pin === 'string' && body.pin !== '' ? body.pin : null;
   const senha = typeof body?.senha === 'string' && body.senha !== '' ? body.senha : null;
-  if (cargo === 'admin' && !senha) throw erro.validacao('Administrador exige senha forte.');
+  // Anti-escalada: um não-admin (ex.: Proprietário) nunca cria uma conta admin.
+  if (cargo === 'admin') exigirAdminDoSistema(adminExecutor);
+  if ((cargo === 'admin' || cargo === 'proprietario') && !senha) throw erro.validacao('Administrador/Proprietário exige senha forte.');
   if (!pin && !senha) throw erro.validacao('Defina PIN (4–6 dígitos) e/ou senha.');
   if (pin && !pinValido(pin)) throw erro.validacao('PIN deve ter 4 a 6 dígitos.');
   if (senha && !senhaForte(senha)) throw erro.validacao('Senha forte obrigatória: mínimo 10 caracteres com letras e números.');
@@ -120,6 +135,14 @@ export function criarUsuario(db, adminExecutor, body, ip) {
 export function alterarCredenciais(db, adminExecutor, usuarioId, body, ip) {
   const alvo = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(usuarioId);
   if (!alvo) throw erro.naoEncontrado('Usuário não encontrado.');
+  // Anti-escalada: só um Administrador edita/desativa/reseta/deleta credenciais
+  // de outra conta Administrador.
+  if (alvo.cargo === 'admin') exigirAdminDoSistema(adminExecutor);
+  // Anti-escalada: elevar qualquer usuário ao cargo admin exige ser Administrador
+  // (defensivo — hoje o cargo não é alterado por esta rota).
+  if (body?.cargo !== undefined && body.cargo !== alvo.cargo && body.cargo === 'admin') {
+    exigirAdminDoSistema(adminExecutor);
+  }
   const pin = typeof body?.pin === 'string' && body.pin !== '' ? body.pin : null;
   const senha = typeof body?.senha === 'string' && body.senha !== '' ? body.senha : null;
   const ativo = body?.ativo === undefined ? undefined : (body.ativo ? 1 : 0);
@@ -151,7 +174,7 @@ export const FLAGS_PERMISSAO = [
   'pode_gerenciar_usuarios', 'pode_ver_relatorios', 'pode_gerenciar_mesas',
   'pode_desconto', 'pode_estoque_gerenciar', 'pode_config_sistema',
   'pode_backup', 'pode_gerenciar_combos', 'pode_brinde',
-  'pode_fazer_checkin', 'pode_gerenciar_taxa_servico',
+  'pode_fazer_checkin', 'pode_gerenciar_taxa_servico', 'pode_painel_dev',
 ];
 
 export const ROTULOS_PERMISSAO = {
@@ -175,22 +198,28 @@ export const ROTULOS_PERMISSAO = {
   pode_brinde: 'Dar cortesia/brinde',
   pode_fazer_checkin: 'Check-in de cliente',
   pode_gerenciar_taxa_servico: 'Configurar taxa de serviço',
+  pode_painel_dev: 'Painel do desenvolvedor (Suporte técnico)',
 };
 
 export function matrizPermissoes(db) {
   return db.prepare('SELECT * FROM permissoes ORDER BY cargo').all();
 }
 
-// Salva a matriz inteira. Trava de segurança: o cargo admin nunca pode perder
-// pode_config_sistema nem pode_gerenciar_usuarios (evita lockout total).
+// Salva a matriz inteira. Travas de segurança:
+//  - o cargo admin nunca pode perder pode_config_sistema nem pode_gerenciar_usuarios
+//    (evita lockout total);
+//  - pode_painel_dev NÃO é editável pela matriz: é ignorado na entrada e forçado
+//    ao seu valor canônico (admin = 1, todos os demais = 0). Assim o Proprietário
+//    nunca consegue escalar para o painel dev e o admin nunca perde o dele.
 export function salvarMatriz(db, adminExecutor, matriz, ip) {
-  const cargos = ['admin', 'caixa', 'garcom', 'cozinha'];
+  const cargos = ['admin', 'proprietario', 'caixa', 'garcom', 'cozinha'];
   const entrada = matriz ?? {};
   return transacao(db, () => {
     for (const cargo of cargos) {
       const flags = entrada[cargo] ?? {};
       const valores = {};
       for (const flag of FLAGS_PERMISSAO) {
+        if (flag === 'pode_painel_dev') continue; // fora da matriz editável (ver abaixo)
         if (!(flag in flags)) continue;
         const v = flags[flag];
         if (v !== 0 && v !== 1 && v !== false && v !== true) {
@@ -211,6 +240,9 @@ export function salvarMatriz(db, adminExecutor, matriz, ip) {
       db.prepare(`UPDATE permissoes SET ${sets.map(([f]) => `${f} = ?`).join(', ')} WHERE cargo = ?`)
         .run(...sets.map(([, v]) => v), cargo);
     }
+    // Invariantes do painel dev (não editável por nenhum cargo da matriz).
+    db.prepare(`UPDATE permissoes SET pode_painel_dev = 0 WHERE cargo != 'admin'`).run();
+    db.prepare(`UPDATE permissoes SET pode_painel_dev = 1 WHERE cargo = 'admin'`).run();
     registrar(db, { usuarioId: adminExecutor.id, acao: 'permissoes_alteradas', detalhes: { por: adminExecutor.nome }, ip });
     return matrizPermissoes(db);
   });
@@ -219,9 +251,65 @@ export function salvarMatriz(db, adminExecutor, matriz, ip) {
 export function desbloquearUsuario(db, adminExecutor, usuarioId, ip) {
   const alvo = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(usuarioId);
   if (!alvo) throw erro.naoEncontrado('Usuário não encontrado.');
+  // Anti-escalada: só um Administrador desbloqueia uma conta Administrador.
+  if (alvo.cargo === 'admin') exigirAdminDoSistema(adminExecutor);
   limparFalhas(db, usuarioId);
   registrar(db, { usuarioId: adminExecutor.id, acao: 'usuario_desbloqueado', entidade: 'usuario', entidadeId: usuarioId, detalhes: { nome: alvo.nome }, ip });
   return { ok: true };
+}
+
+// ---------- Excluir usuário (painel dev — Suporte técnico) ----------
+// Exclusão LÓGICA: o usuário sai do sistema na hora (não loga mais, sessões caem,
+// sai da lista de ativos) e o NOME volta a ficar livre para recadastro. O registro
+// permanece no banco porque pedidos, caixa e auditoria apontam para ele — apagar a
+// linha quebraria FKs e o histórico append-only.
+export function excluirUsuario(db, adminExecutor, usuarioId, ip) {
+  const alvo = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(Number(usuarioId));
+  if (!alvo) throw erro.naoEncontrado('Usuário não encontrado.');
+  if (!alvo.ativo) throw erro.conflito('409_CONFLITO_ESTADO', 'Este usuário já está excluído/desativado.');
+  if (alvo.id === adminExecutor.id) throw erro.validacao('Você não pode excluir a própria conta.');
+  // Anti-escalada: só um Administrador exclui uma conta Administrador.
+  if (alvo.cargo === 'admin') {
+    exigirAdminDoSistema(adminExecutor);
+    const outros = db.prepare(
+      `SELECT COUNT(*) AS n FROM usuarios WHERE cargo = 'admin' AND ativo = 1 AND id != ?`
+    ).get(alvo.id).n;
+    if (outros === 0) throw erro.validacao('O sistema precisa de pelo menos um Administrador ativo.');
+  }
+  return transacao(db, () => {
+    // Libera o nome (UNIQUE COLLATE NOCASE) sem perder o vínculo histórico.
+    db.prepare(`UPDATE usuarios SET ativo = 0, nome = nome || ' (excluído ' || id || ')' WHERE id = ?`).run(alvo.id);
+    revogarTodasDoUsuario(db, alvo.id);
+    registrar(db, {
+      usuarioId: adminExecutor.id, acao: 'usuario_excluido', entidade: 'usuario', entidadeId: alvo.id,
+      detalhes: { nome: alvo.nome, cargo: alvo.cargo }, ip,
+    });
+    return { ok: true, id: alvo.id, nome: alvo.nome, cargo: alvo.cargo };
+  });
+}
+
+// Desfaz a exclusão lógica (Suporte técnico → Usuários): volta o acesso e o nome
+// original — que precisa estar livre (o login só é liberado na exclusão, então
+// pode ter sido recadastrado por outra pessoa nesse meio-tempo).
+export function restaurarUsuario(db, adminExecutor, usuarioId, ip) {
+  const alvo = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(Number(usuarioId));
+  if (!alvo) throw erro.naoEncontrado('Usuário não encontrado.');
+  if (alvo.ativo) throw erro.conflito('409_CONFLITO_ESTADO', 'Este usuário já está ativo.');
+  // Anti-escalada: só um Administrador restaura uma conta Administrador.
+  if (alvo.cargo === 'admin') exigirAdminDoSistema(adminExecutor);
+  const original = String(alvo.nome).replace(/\s*\(excluído \d+\)$/i, '').trim() || alvo.nome;
+  const ocupado = db.prepare('SELECT id FROM usuarios WHERE nome = ? AND id != ?').get(original, alvo.id);
+  if (ocupado) {
+    throw erro.conflito('409_CONFLITO_ESTADO', `O nome "${original}" já está em uso por outro usuário — renomeie a conta nova antes de restaurar.`);
+  }
+  return transacao(db, () => {
+    db.prepare('UPDATE usuarios SET ativo = 1, nome = ?, falhas_login = 0, bloqueado_ate = NULL WHERE id = ?').run(original, alvo.id);
+    registrar(db, {
+      usuarioId: adminExecutor.id, acao: 'usuario_restaurado', entidade: 'usuario', entidadeId: alvo.id,
+      detalhes: { nome: original, cargo: alvo.cargo }, ip,
+    });
+    return { ok: true, id: alvo.id, nome: original };
+  });
 }
 
 // ---------- Sessões ativas (1.3.1) ----------
@@ -264,12 +352,16 @@ export function listarSessoes(db, { sessaoIdAtual = null, inatividadeMin = 30 } 
 
 export function desconectarSessao(db, adminExecutor, sessaoId, ip, { sessaoIdAtual = null } = {}) {
   const s = db.prepare(
-    `SELECT s.*, u.nome AS usuario_nome FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id WHERE s.id = ?`
+    `SELECT s.*, u.nome AS usuario_nome, u.cargo AS usuario_cargo
+     FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id WHERE s.id = ?`
   ).get(String(sessaoId));
   if (!s || s.revogada) throw erro.naoEncontrado('Sessão não encontrada (ou já encerrada).');
   if (sessaoIdAtual && s.id === sessaoIdAtual) {
     throw erro.validacao('Use "Sair" para encerrar a sua própria sessão.');
   }
+  // Anti-escalada: só um Administrador derruba a sessão de um Administrador
+  // (o Proprietário não pode "expulsar" o admin do sistema).
+  if (s.usuario_cargo === 'admin') exigirAdminDoSistema(adminExecutor);
   return transacao(db, () => {
     db.prepare('UPDATE sessoes SET revogada = 1 WHERE id = ?').run(s.id);
     registrar(db, {

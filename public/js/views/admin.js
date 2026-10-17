@@ -45,7 +45,7 @@ const CATEGORIAS_ADMIN = [
       ['tema', 'paleta', 'Aparência', 'pode_config_sistema', 'Tema, cores, densidade e navegação'],
       ['backups', 'disquete', 'Backups', 'pode_backup', 'Cópias de segurança e restauração'],
       ['auditoria', 'lupa', 'Auditoria', 'pode_gerenciar_usuarios', 'Histórico de operações sensíveis'],
-      ['dev', 'ferramentas', 'Suporte técnico', 'pode_config_sistema', 'Diagnóstico, dispositivos e Cloud AWS'],
+      ['dev', 'ferramentas', 'Suporte técnico', 'pode_painel_dev', 'Diagnóstico, dispositivos e Cloud AWS'],
     ],
   },
 ];
@@ -816,7 +816,7 @@ async function telaEstoque(painel, estadoApp) {
 }
 
 async function telaPermissoes(painel) {
-  const CARGOS = [['admin', 'Administrador'], ['caixa', 'Caixa'], ['garcom', 'Garçom'], ['cozinha', 'Cozinha']];
+  const CARGOS = [['admin','Administrador'],['caixa','Caixa'],['garcom','Garçom'],['cozinha','Cozinha'],['proprietario','Proprietário']];
   let dados;
   try { dados = await get('/permissoes'); }
   catch (e) { painel.innerHTML = `<div class="vazio">Erro: ${escapar(e.message)}</div>`; return; }
@@ -828,7 +828,7 @@ async function telaPermissoes(painel) {
     <tbody>${Object.entries(dados.rotulos).map(([flag, rotulo]) => `<tr>
       <td>${escapar(rotulo)}</td>
       ${CARGOS.map(([c]) => {
-        const travada = c === 'admin' && (flag === 'pode_config_sistema' || flag === 'pode_gerenciar_usuarios');
+        const travada = (c === 'admin' || c === 'proprietario') && (flag === 'pode_config_sistema' || flag === 'pode_gerenciar_usuarios' || flag === 'pode_painel_dev');
         const marcada = !!porCargo[c]?.[flag];
         return `<td style="text-align:center"><input type="checkbox" data-flag="${flag}" data-cargo="${c}" ${marcada ? 'checked' : ''} ${travada ? 'disabled title="Trava anti-bloqueio"' : ''} style="width:24px;height:24px" aria-label="${escapar(rotulo)} para ${c}" /></td>`;
       }).join('')}</tr>`).join('')}</tbody></table></div>
@@ -848,22 +848,27 @@ async function telaPermissoes(painel) {
   };
 }
 
-async function telaUsuarios(painel) {
+async function telaUsuarios(painel, estadoApp) {
   const usuarios = await get('/usuarios');
+  // Só um Administrador gerencia outra conta Administrador (o Proprietário não
+  // pode escalar privilégio criando/resetando um admin e entrando no painel dev).
+  const souAdmin = estadoApp?.usuario?.cargo === 'admin';
+  const ROTULO_CARGO = { admin: 'Administrador', proprietario: 'Proprietário', caixa: 'Caixa', garcom: 'Garçom', cozinha: 'Cozinha' };
   painel.innerHTML = `
     <button class="btn primario" id="novo">+ Novo usuário</button>
     <table class="dados" style="margin-top:10px"><thead><tr><th scope="col">Nome</th><th scope="col">Cargo</th><th scope="col">Status</th><th scope="col">Último login</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
     <tbody>${usuarios.map((u) => `<tr>
-      <td>${escapar(u.nome)}${u.falhas_login > 0 ? ` <span class="badge alerta" title="Tentativas falhas">${u.falhas_login} erro(s)</span>` : ''}${u.bloqueado_ate ? ' <span class="badge alerta">bloqueado</span>' : ''}</td><td>${u.cargo}</td>
+      <td>${escapar(u.nome)}${u.falhas_login > 0 ? ` <span class="badge alerta" title="Tentativas falhas">${u.falhas_login} erro(s)</span>` : ''}${u.bloqueado_ate ? ' <span class="badge alerta">bloqueado</span>' : ''}</td><td>${escapar(ROTULO_CARGO[u.cargo] ?? u.cargo)}</td>
       <td>${u.ativo ? '<span class="badge ok">ativo</span>' : '<span class="badge alerta">inativo</span>'}</td>
       <td>${u.ultimo_login ? new Date(u.ultimo_login).toLocaleString('pt-BR') : '—'}</td>
-      <td style="white-space:nowrap"><button class="btn ghost" data-cred="${u.id}">${ic('chave')} Credenciais</button>
-      ${(u.falhas_login > 0 || u.bloqueado_ate) ? `<button class="btn ghost" data-desbloq="${u.id}" title="Zerar erros e desbloqueio">${ic('cadeado-aberto')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`;
+      <td style="white-space:nowrap">${(!souAdmin && u.cargo === 'admin') ? '<span class="badge" title="Só um Administrador gerencia outro Administrador">conta protegida</span>' : `<button class="btn ghost" data-cred="${u.id}">${ic('chave')} Credenciais</button>
+      ${(u.falhas_login > 0 || u.bloqueado_ate) ? `<button class="btn ghost" data-desbloq="${u.id}" title="Zerar erros e desbloqueio">${ic('cadeado-aberto')}</button>` : ''}`}</td></tr>`).join('')}</tbody></table>
+    <p><small style="color:var(--texto-fraco)">Só usuários <strong>ativos</strong> aparecem aqui: quem é excluído (ou desativado em <em>Credenciais</em>) sai da lista. Para ver o histórico e reativar alguém, use <strong>Sistema → Suporte técnico → Usuários</strong>.</small></p>`;
   painel.querySelector('#novo').onclick = () => {
     const m = modal(`<h2>Novo usuário</h2>
       <input id="nome" placeholder="Nome" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)"/>
       <select id="cargo" style="width:100%;padding:12px;margin-top:8px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)">
-        <option value="caixa">Caixa</option><option value="garcom">Garçom</option><option value="cozinha">Cozinha</option><option value="admin">Administrador (exige senha)</option>
+        <option value="caixa">Caixa</option><option value="garcom">Garçom</option><option value="cozinha">Cozinha</option><option value="proprietario">Proprietário (todos os acessos, sem painel dev)</option>${souAdmin ? '<option value="admin">Administrador (exige senha)</option>' : ''}
       </select>
       <input id="pin" inputmode="numeric" maxlength="6" placeholder="PIN 4–6 dígitos" style="width:100%;padding:12px;margin-top:8px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)"/>
       <input id="senha" type="password" placeholder="Senha (obrigatória p/ admin; forte)" style="width:100%;padding:12px;margin-top:8px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)"/>
@@ -874,14 +879,14 @@ async function telaUsuarios(painel) {
           nome: m.caixa.querySelector('#nome').value.trim(), cargo: m.caixa.querySelector('#cargo').value,
           pin: m.caixa.querySelector('#pin').value || undefined, senha: m.caixa.querySelector('#senha').value || undefined,
         });
-        m.fechar(); telaUsuarios(painel);
+        m.fechar(); telaUsuarios(painel, estadoApp);
       } catch (e) { toast(e.message, 'erro'); }
     };
   };
   painel.querySelectorAll('[data-desbloq]').forEach((b) => {
     b.onclick = async () => {
       if (!await confirmar('Desbloquear funcionário?', 'Zera as tentativas falhas e remove o bloqueio temporário.')) return;
-      try { await post(`/usuarios/${b.dataset.desbloq}/desbloquear`, {}); toast('Funcionário desbloqueado', 'ok'); telaUsuarios(painel); }
+      try { await post(`/usuarios/${b.dataset.desbloq}/desbloquear`, {}); toast('Funcionário desbloqueado', 'ok'); telaUsuarios(painel, estadoApp); }
       catch (e) { toast(e.message, 'erro'); }
     };
   });
@@ -899,7 +904,7 @@ async function telaUsuarios(painel) {
             senha: m.caixa.querySelector('#senha').value || undefined,
             ativo: m.caixa.querySelector('#ativo').checked ? 1 : 0,
           });
-          m.fechar(); telaUsuarios(painel);
+          m.fechar(); telaUsuarios(painel, estadoApp);
         } catch (e) { toast(e.message, 'erro'); }
       };
     };
@@ -1299,6 +1304,7 @@ async function telaDev(painel) {
           <button class="btn ativa" role="tab" aria-selected="true" data-dev="diag">Diagnóstico</button>
           <button class="btn" role="tab" aria-selected="false" data-dev="aws">${ic('globo')} Cloud AWS & DevOps</button>
           <button class="btn" role="tab" aria-selected="false" data-dev="disp">${ic('antena')} Dispositivos</button>
+          <button class="btn" role="tab" aria-selected="false" data-dev="usu">${ic('pessoas')} Usuários</button>
         </div>
         <div id="dev-conteudo" class="cartao" style="margin-top:10px"></div>`;
       const area = painel.querySelector('#dev-conteudo');
@@ -1352,6 +1358,68 @@ docker compose -f deploy/aws/docker-compose.yml up -d --build</pre>
               <td><small>${new Date(c.desde).toLocaleString('pt-BR')}</small></td>
             </tr>`).join('') || '<tr><td colspan="5" class="vazio">Nenhum dispositivo conectado via WebSocket agora (PDV, garçom mobile, web)</td></tr>'}</tbody></table>
             <p><small style="color:var(--texto-fraco)">Sessões completas (IP, última atividade, desconexão) ficam na aba <strong>Pessoas → Sessões ativas</strong>.</small></p>`;
+        },
+        usu: async () => {
+          // Lista TODOS (inclusive excluídos/desativados) e permite excluir, com
+          // reautenticação de gestor usando as credenciais já digitadas acima.
+          area.innerHTML = '<div class="vazio" style="padding:10px">Carregando…</div>';
+          let lista = [];
+          try { lista = (await get('/admin/dev/usuarios')).usuarios ?? []; }
+          catch (e) { toast(e.message, 'erro'); }
+          const rotuloCargo = { admin: 'Administrador', proprietario: 'Proprietário', caixa: 'Caixa', garcom: 'Garçom', cozinha: 'Cozinha' };
+          area.innerHTML = `
+            <h3 style="margin-top:0">${ic('pessoas')} Usuários cadastrados (${lista.length})</h3>
+            <p><small style="color:var(--texto-fraco)">A exclusão é <strong>lógica</strong>: o acesso é cortado na hora (sessões derrubadas) e o nome volta a ficar livre para recadastro — o histórico de pedidos, caixa e auditoria é preservado.</small></p>
+            <table class="dados"><thead><tr><th scope="col">Usuário</th><th scope="col">Cargo</th><th scope="col">Situação</th><th scope="col">Último acesso</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
+            <tbody>${lista.map((u) => `<tr>
+              <td>${escapar(u.nome)}</td>
+              <td>${escapar(rotuloCargo[u.cargo] ?? u.cargo)}</td>
+              <td>${u.ativo ? '<span class="badge ok">ativo</span>' : '<span class="badge alerta">excluído</span>'}</td>
+              <td><small>${u.ultimo_login ? new Date(u.ultimo_login).toLocaleString('pt-BR') : '—'}</small></td>
+              <td style="white-space:nowrap">${u.ativo
+                ? `<button class="btn ghost" data-excluir="${u.id}" data-nome="${escapar(u.nome)}" data-cargo="${escapar(u.cargo)}">${ic('lixeira')} Excluir</button>`
+                : `<button class="btn ghost" data-restaurar="${u.id}" data-nome="${escapar(u.nome)}">${ic('sincronizar')} Reativar</button>`}</td></tr>`).join('')
+              || '<tr><td colspan="5" class="vazio">Nenhum usuário cadastrado.</td></tr>'}</tbody></table>`;
+          // Step-up: reaproveita as credenciais de gestor digitadas no topo do painel.
+          const credenciais = () => {
+            const usuario = painel.querySelector('#usuario').value.trim();
+            const senha = painel.querySelector('#senha').value;
+            if (!usuario || !senha) {
+              toast('Redigite usuário e senha do administrador no topo para autorizar.', 'erro');
+              painel.querySelector('#senha').focus();
+              return null;
+            }
+            return { admin_usuario: usuario, admin_senha: senha };
+          };
+          area.querySelectorAll('[data-restaurar]').forEach((b) => {
+            b.onclick = async () => {
+              const cred = credenciais();
+              if (!cred) return;
+              const nome = String(b.dataset.nome).replace(/\s*\(excluído \d+\)$/i, '');
+              if (!await confirmar('Reativar usuário?',
+                `"${escapar(nome)}" volta a acessar o sistema com o nome original${nome !== b.dataset.nome ? ` ("${escapar(b.dataset.nome)}" → "${escapar(nome)}")` : ''}.`)) return;
+              try {
+                const r = await post(`/admin/dev/usuarios/${b.dataset.restaurar}/restaurar`, cred);
+                toast(`Usuário "${r.nome}" reativado`, 'ok');
+                telas.usu();
+              } catch (e) { toast(e.message, 'erro'); }
+            };
+          });
+          area.querySelectorAll('[data-excluir]').forEach((b) => {
+            b.onclick = async () => {
+              const cred = credenciais();
+              if (!cred) return;
+              const nome = b.dataset.nome;
+              if (!await confirmar('Excluir usuário?',
+                `"${escapar(nome)}" perde o acesso imediatamente (as sessões abertas caem) e o nome fica livre para recadastro. O histórico é preservado.`,
+                { perigo: true })) return;
+              try {
+                await post(`/admin/dev/usuarios/${b.dataset.excluir}/excluir`, cred);
+                toast(`Usuário "${nome}" excluído`, 'ok');
+                telas.usu();
+              } catch (e) { toast(e.message, 'erro'); }
+            };
+          });
         },
       };
       painel.querySelectorAll('[data-dev]').forEach((b) => {

@@ -1,5 +1,6 @@
 import { extrairTokenDoCookie, validarSessao } from './sessions.js';
 import { erro } from '../core/errors.js';
+import { CARGOS_GESTAO } from './cargos.js';
 
 // Middleware: autentica por cookie de sessão (token hasheado no banco).
 export function autenticar(db) {
@@ -42,12 +43,15 @@ export function guardaMutacao(req, _res, next) {
   next();
 }
 
-// Step-up: exige credencial de um admin válido no corpo para operações sensíveis.
+// Step-up: exige credencial de um gestor válido no corpo para operações
+// sensíveis. O cargo "proprietario" autoriza sozinho, igual ao "admin".
 export function verificarStepUpAdmin(db, crypto, pepper, body, { usuarioExecutorId } = {}) {
   const nome = typeof body?.admin_usuario === 'string' ? body.admin_usuario.trim() : '';
   const senha = typeof body?.admin_senha === 'string' ? body.admin_senha : '';
   if (!nome || !senha) throw erro.permissao('Autorização administrativa obrigatória: informe usuário e senha de administrador.');
-  const admin = db.prepare('SELECT * FROM usuarios WHERE nome = ? AND cargo = ? AND ativo = 1').get(nome, 'admin');
+  const marcadores = CARGOS_GESTAO.map(() => '?').join(', ');
+  const admin = db.prepare(`SELECT * FROM usuarios WHERE nome = ? AND cargo IN (${marcadores}) AND ativo = 1`)
+    .get(nome, ...CARGOS_GESTAO);
   if (!admin || !admin.senha_hash || !crypto.verificarSegredo(senha, admin.senha_hash, pepper)) {
     db.prepare('UPDATE usuarios SET falhas_login = falhas_login + 1 WHERE id = ? AND falhas_login < 99').run(admin?.id ?? 0);
     throw erro.permissao('Autorização administrativa inválida.');

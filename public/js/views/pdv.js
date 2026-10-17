@@ -2,18 +2,23 @@
 import { ic } from '../icons.js';
 import { get, post, fmt, reaisParaCentavos, novaIdempotencia } from '../api.js';
 import { toast, modal, confirmar, escapar, pedirAutorizacaoAdmin, numpadConteudo } from '../ui.js';
+import { abrirGorjeta } from '../gorjeta.js';
 import { mostrarRecibo } from '../recibo.js';
 import { seletorCombo } from './combos.js';
+import { abrirConta } from '../conta.js';
 import { anunciar } from '../a11y.js';
+
 import { guardarCatalogo, lerCatalogo } from '../offdb.js';
 
 let catalogo = { categorias: [], produtos: [], adicionais: [] };
 let carrinho = []; // {produto_id, nome, preco_centavos, quantidade, adicionais:[...], observacoes, variacao_id, variacao_nome, variacao_delta}
 let categoriaAtiva = null;
 let buscaPDV = '';
-let maisVendidosPDV = [];
 let viagemPDV = false;
+
+let caixaAbertoPDV = false;
 let vendaEmAndamento = false; // trava contra duplo clique/F2 repetido (venda duplicada)
+
 
 function rotuloTipo(t) {
   return { lanche: 'Lanche', prato: 'Prato', porcao: 'Porção', bebida: 'Bebida', sobremesa: 'Sobremesa', servico: 'Serviço', outro: 'Item' }[t] ?? t;
@@ -54,9 +59,14 @@ export async function render(conteudo, _sub, estadoApp) {
     if (cache) { catalogo = cache; toast('Catálogo em cache (sem conexão)', 'erro'); }
     else { conteudo.innerHTML = '<div class="vazio">Sem conexão e sem cache do catálogo.</div>'; return; }
   }
-  try { maisVendidosPDV = await get('/catalogo/mais-vendidos?dias=30&limite=8'); }
-  catch { maisVendidosPDV = []; }
   categoriaAtiva = catalogo.categorias[0]?.id ?? null;
+  // fetch caixa status; ignore network errors (backend authority)
+  try {
+    const caixaAtual = await get('/caixa/atual');
+    caixaAbertoPDV = !!caixaAtual?.sessao;
+  } catch {
+    /* ignore */
+  }
   desenhar(conteudo, estadoApp);
 }
 
@@ -73,14 +83,15 @@ function desenhar(conteudo, estadoApp) {
   // Fluxo de bip: se o operador estava na busca, o foco volta lá depois
   // do re-render — sem F8 entre uma leitura e outra.
   const focavaBusca = document.activeElement?.id === 'busca-pdv';
+  const podeAbrirCaixa = !!estadoApp.permissoes.pode_abrir_fechar_caixa;
+  const aviso = !caixaAbertoPDV
+    ? `<div class="cartao" style="border-color:var(--alerta)">${ic('alerta')} <strong>Caixa fechado</strong> — ${podeAbrirCaixa ? 'abra o caixa para vender e receber.' : 'peça a quem opera o caixa para abrir o caixa.'}${podeAbrirCaixa ? ` <button class="btn primario" id="btn-abrir-caixa">Abrir caixa</button>` : ''}</div>`
+    : '';
   conteudo.innerHTML = `
+${aviso}
     <div class="pdv-topo">
       <input id="busca-pdv" class="campo pdv-busca" placeholder="Buscar por nome, apelido ou código de barras (Enter = bip)" value="${escapar(buscaPDV ?? '')}" aria-label="Buscar produto" />
     </div>
-    ${maisVendidosPDV.length ? `<div class="abas" aria-label="Mais vendidos">
-      <span class="badge">${ic('estrela')} Mais vendidos</span>
-      ${maisVendidosPDV.map((v) => `<button class="btn" data-top="${v.produto_id}" title="${escapar(v.nome)}">${escapar(v.nome.length > 18 ? v.nome.slice(0, 18) + '…' : v.nome)}</button>`).join('')}
-    </div>` : ''}
     <div class="abas" role="tablist" aria-label="Categorias">
       ${catalogo.categorias.map((c) => `<button class="btn ${c.id === categoriaAtiva ? 'ativa' : ''}" role="tab" aria-selected="${c.id === categoriaAtiva}" aria-controls="grade-pdv" data-cat="${c.id}">${escapar(c.nome)}</button>`).join('')}
     </div>
@@ -99,9 +110,14 @@ function desenhar(conteudo, estadoApp) {
           }).join('') || '<div class="vazio">Nenhum produto encontrado.</div>'}
         </div>
       </div>
-      <aside class="cartao pdv-aside">
-        <h3>${ic('recibo')} Comanda rápida</h3>
-        <div id="itens-carrinho" class="pdv-itens">
+      <aside class="cartao pdv-aside painel-comanda">
+        <div class="painel-comanda-topo">
+          <h3>${ic('recibo')} Comanda rápida</h3>
+          <label class="pdv-check" for="viagem">
+            <input type="checkbox" id="viagem" ${viagemPDV ? 'checked' : ''} /> ${ic('marmita')} Para viagem
+          </label>
+        </div>
+        <div id="itens-carrinho" class="painel-comanda-itens">
           ${carrinho.map((i, idx) => `
             <div class="linha-itens">
               <span>${i.quantidade}× ${escapar(i.nome)}${i.variacao_nome ? `<br><small>${escapar(i.variacao_nome)}</small>` : ''}${i.adicionais.length ? `<br><small>+ ${escapar(i.adicionais.map((a) => a.nome).join(', '))}</small>` : ''}${i.observacoes ? `<br><small class="obs">${ic('lapis')} ${escapar(i.observacoes)}</small>` : ''}</span>
@@ -111,16 +127,18 @@ function desenhar(conteudo, estadoApp) {
               </span>
             </div>`).join('') || '<div class="vazio">Toque nos produtos para adicionar</div>'}
         </div>
-        <p class="pdv-total"><strong>Total: <span class="valor">${fmt(totalCarrinho)}</span></strong></p>
-        <label class="pdv-check" for="viagem">
-          <input type="checkbox" id="viagem" ${viagemPDV ? 'checked' : ''} /> ${ic('marmita')} Para viagem
-        </label>
-        <div class="pdv-acoes">
-          <button class="btn" id="btn-combos">${ic('presente')} Combos</button>
+        <div class="painel-comanda-rodape">
+          <div class="cm-totais">
+            <div><span>Subtotal</span><span class="mono">${fmt(totalCarrinho)}</span></div>
+            <div class="cm-total"><span>Total</span><span class="mono">${fmt(totalCarrinho)}</span></div>
+            <div class="cm-falta"><span>Falta</span><span class="mono">${fmt(totalCarrinho)}</span></div>
+          </div>
         </div>
-        <div class="pdv-acoes">
+        <div class="painel-comanda-acoes">
+          <button class="btn" id="btn-combos">${ic('presente')} Combos</button>
           <button class="btn ghost" id="btn-limpar" title="Atalho: F4">Limpar</button>
-          <button class="btn primario grande pdv-finalizar" id="btn-vender" title="Atalho: F2" aria-label="Finalizar venda" ${carrinho.length ? '' : 'disabled'}>${ic('check')} Finalizar</button>
+          <button class="btn" id="btn-conta"${carrinho.length ? '' : ' disabled'}>${ic('recibo')} Conta</button>
+          <button class="btn ok larga" id="btn-vender" title="${caixaAbertoPDV ? 'Atalho: F2' : 'Abra o caixa para vender'}" aria-label="Finalizar venda" ${carrinho.length && caixaAbertoPDV ? '' : 'disabled'}>${ic('check')} Finalizar</button>
         </div>
         <p class="pdv-atalhos"><small>Atalhos: F2 finalizar · F4 limpar · F8 buscar</small></p>
       </aside>
@@ -154,9 +172,6 @@ function desenhar(conteudo, estadoApp) {
     if (e.key === 'Escape') { buscaPDV = ''; desenhar(conteudo, estadoApp); }
   };
 
-  conteudo.querySelectorAll('[data-top]').forEach((b) => {
-    b.onclick = () => adicionarRapido(Number(b.dataset.top), conteudo, estadoApp);
-  });
   conteudo.querySelectorAll('[data-cat]').forEach((b) => {
     b.onclick = () => { categoriaAtiva = Number(b.dataset.cat); desenhar(conteudo, estadoApp); };
   });
@@ -173,8 +188,53 @@ function desenhar(conteudo, estadoApp) {
   };
   conteudo.querySelector('#btn-combos').onclick = () => abrirCombosModal(conteudo, estadoApp);
   conteudo.querySelector('#btn-vender').onclick = () => fluxoVenda(conteudo, estadoApp);
+  // Conta: conferência do carrinho em formato de cupom (nada é gravado).
+  const btnConta = conteudo.querySelector('#btn-conta');
+  if (btnConta) btnConta.onclick = () => abrirConta({
+    titulo: 'Balcão',
+    subtitulo: viagemPDV ? 'Para viagem' : '',
+    itens: carrinho.map((i) => {
+      // Valor unitário efetivo (preço + variação + adicionais) — a linha fecha com o total.
+      const unit = i.preco_centavos + (i.variacao_delta ?? 0) + i.adicionais.reduce((a, ad) => a + ad.preco_centavos * ad.quantidade, 0);
+      return {
+        quantidade: i.quantidade,
+        nome: i.nome,
+        detalhe: [i.variacao_nome,
+          i.adicionais.length ? `+ ${i.adicionais.map((a) => a.nome).join(', ')}` : null,
+          i.observacoes].filter(Boolean).join(' · '),
+        unit_centavos: unit,
+        total_centavos: unit * i.quantidade,
+      };
+    }),
+    totais: { total_centavos: totalCarrinhoCentavos() },
+  });
   const chkViagem = conteudo.querySelector('#viagem');
   if (chkViagem) chkViagem.onchange = () => { viagemPDV = chkViagem.checked; };
+  // abrir caixa modal when button present
+  const btnAbrirCaixa = conteudo.querySelector('#btn-abrir-caixa');
+  if (btnAbrirCaixa) {
+    btnAbrirCaixa.onclick = async () => {
+      const m = modal(`
+        <h2>${ic('dinheiro')} Abrir caixa</h2>
+        <p>Informe o fundo de troco (saldo inicial):</p>
+        <input id="saldo" inputmode="decimal" placeholder="Ex: 150,00" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" />
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn primario" id="btn-confirmar-abrir">Abrir caixa</button>
+        </div>`);
+      const btnConf = m.caixa.querySelector('#btn-confirmar-abrir');
+      btnConf.onclick = async () => {
+        const valor = reaisParaCentavos(m.caixa.querySelector('#saldo').value || '0');
+        if (valor === null || valor < 0) { toast('Valor inválido', 'erro'); return; }
+        try {
+          await post('/caixa/abrir', { saldo_inicial_centavos: valor });
+          toast('Caixa aberto', 'ok');
+          m.fechar();
+          caixaAbertoPDV = true;
+          desenhar(conteudo, estadoApp); // só redesenha: preserva o carrinho já lançado
+        } catch (e) { toast(e.message, 'erro'); }
+      };
+    };
+  }
 }
 
 function abrirItemModal(produtoId, conteudo, estadoApp) {
@@ -185,10 +245,12 @@ function abrirItemModal(produtoId, conteudo, estadoApp) {
   const nomesGrupo = Object.keys(gruposVar);
   const m = modal(`
     <h2>${escapar(p.nome)} <span style="color:var(--ok);font-family:var(--mono)">${fmt(p.preco_centavos)}</span></h2>
+    
     <p>Quantidade</p>
-    <div class="numpad" id="np-qtd" style="grid-template-columns:repeat(4,1fr)">
-      ${[1,2,3,4,5,6].map((n) => `<button class="btn ${n === 1 ? 'ativa' : ''}" data-q="${n}">${n}</button>`).join('')}
-      <button class="btn" data-q="outro" title="Outra quantidade" aria-label="Outra quantidade">＋</button>
+    <div class="qtd-stepper">
+      <button type="button" class="btn" data-q="-1" aria-label="Diminuir">−</button>
+      <input id="qtd" type="number" min="1" max="999" value="1" inputmode="numeric" aria-label="Quantidade" />
+      <button type="button" class="btn" data-q="1" aria-label="Aumentar">＋</button>
     </div>
     ${nomesGrupo.length ? nomesGrupo.map((g) => `
       <p style="margin-bottom:4px">${escapar(g[0].toUpperCase() + g.slice(1))}</p>
@@ -209,34 +271,25 @@ function abrirItemModal(produtoId, conteudo, estadoApp) {
       <button class="btn ghost" data-a="cancelar">Cancelar</button>
       <button class="btn primario grande" data-a="ok" style="flex:1">Adicionar</button>
     </div>`);
+  m.caixa.classList.add('modal-quantidade');
   let qtd = 1;
+  const inputQtd = m.caixa.querySelector('#qtd');
   m.caixa.querySelectorAll('[data-q]').forEach((b) => {
     b.onclick = () => {
-      if (b.dataset.q === 'outro') {
-        // Quantidades além dos atalhos (7, 10, 12…) — valida o domínio real
-        // do pedido (schema: quantidade > 0 e < 1000).
-        numpadConteudo({
-          monetario: false,
-          rotulo: 'Definir quantidade',
-          aoConfirmar: (txt) => {
-            const n = Math.floor(Number(txt));
-            if (!Number.isFinite(n) || n < 1 || n > 999) { toast('Quantidade entre 1 e 999', 'erro'); return; }
-            qtd = n;
-            m.caixa.querySelectorAll('[data-q]').forEach((x) => x.classList.remove('ativa'));
-            b.classList.add('ativa');
-            b.textContent = n;
-          },
-        });
-        return;
-      }
-      qtd = Number(b.dataset.q);
-      m.caixa.querySelectorAll('[data-q]').forEach((x) => {
-        x.classList.remove('ativa');
-        if (x.dataset.q === 'outro') x.textContent = '＋';
-      });
-      b.classList.add('ativa');
+      const delta = Number(b.dataset.q);
+      let newVal = qtd + delta;
+      newVal = Math.max(1, Math.min(999, newVal));
+      qtd = newVal;
+      if (inputQtd) inputQtd.value = qtd;
     };
   });
+  if (inputQtd) {
+    inputQtd.addEventListener('input', () => {
+      const v = Math.floor(Number(inputQtd.value));
+      qtd = Number.isFinite(v) ? Math.max(1, Math.min(999, v)) : 1;
+    });
+    inputQtd.addEventListener('change', () => { inputQtd.value = String(qtd); });
+  }
   m.caixa.querySelectorAll('[data-var-grupo]').forEach((b) => {
     b.onclick = () => {
       m.caixa.querySelectorAll(`[data-var-grupo="${b.dataset.varGrupo}"]`).forEach((x) => {
@@ -407,7 +460,7 @@ async function fluxoVenda(conteudo, estadoApp) {
           variacoes: (i.variacoes ?? []).map((v) => ({ variacao_id: v.variacao_id })),
         })),
       }, { idem: idemPedido });
-    } catch (e) { toast(e.message, 'erro'); return; }
+    } catch (e) { toast(e.message, 'erro'); if (/caixa/i.test(e.message)) { caixaAbertoPDV = false; desenhar(conteudo, estadoApp); } return; }
     carrinho = [];
 
     // 2) tela de pagamento dividido em loop até saldo = 0
@@ -434,6 +487,14 @@ async function fluxoVenda(conteudo, estadoApp) {
 }
 
 export function telaPagamento(pedido, estadoApp) {
+  // Gorjeta: extra sobre a conta (não entra no total nem no saldo). A
+  // implementação compartilhada fica em public/js/gorjeta.js.
+  async function abrirModalGorjeta() {
+    await abrirGorjeta({
+      pedidoId: pedido.id,
+      nomePadrao: pedido.atendente_nome || pedido.garcom_nome || '',
+    });
+  }
   return new Promise((resolve) => {
     const t = pedido.totais;
     let pendente = t.saldo_centavos;
@@ -459,6 +520,7 @@ export function telaPagamento(pedido, estadoApp) {
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap">
         <button class="btn" data-a="exato">Valor exato (${fmt(t.saldo_centavos)})</button>
         <button class="btn" data-a="dividir">Dividir por pessoas</button>
+        ${estadoApp.permissoes.pode_dividir_pagar ? `<button class="btn" data-a="gorjeta">Gorjeta</button>` : ''}
         <button class="btn" data-a="combo">${ic('presente')} Aplicar combo</button>
         <button class="btn" data-a="guardar">Guardar</button>
         <button class="btn ghost" data-a="deixar">Deixar aberta</button>
@@ -473,6 +535,7 @@ export function telaPagamento(pedido, estadoApp) {
     });
     m.caixa.querySelector('[data-a="deixar"]').onclick = () => { m.fechar(); resolve('cancelar'); };
     m.caixa.querySelector('[data-a="dividir"]').onclick = () => modalDividirPessoas();
+    m.caixa.querySelector('[data-a="gorjeta"]').onclick = async () => { await abrirModalGorjeta(); };
     m.caixa.querySelector('[data-a="guardar"]').onclick = async () => {
       try {
         await post(`/pedidos/${pedido.id}/guardar`, { guardado: true });
