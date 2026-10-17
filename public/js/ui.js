@@ -10,12 +10,12 @@ export function toast(mensagem, tipo = 'info', ms = 3500) {
   setTimeout(() => el.remove(), ms);
 }
 
-export function modal(conteudo, { aoFechar } = {}) {
+export function modal(conteudo, { aoFechar, folha = false } = {}) {
   const raiz = document.getElementById('modal-root');
   const fundo = document.createElement('div');
   fundo.className = 'modal-fundo';
   const caixa = document.createElement('div');
-  caixa.className = 'modal';
+  caixa.className = folha ? 'modal bottom-sheet' : 'modal';
   caixa.setAttribute('role', 'dialog');
   caixa.setAttribute('aria-modal', 'true');
   const titulo = conteudo.match(/<h2>(.*?)<\/h2>/);

@@ -15,7 +15,8 @@ export function render(raiz, mensagem, aoEntrar) {
           <h2 style="margin-top:0">${ic('chave')} Acesso</h2>
           ${mensagem ? `<p style="color:var(--alerta)">${escapar(mensagem)}</p>` : ''}
           <div id="area-pin">
-            <div class="display-valor" id="pin-display" aria-live="polite">••••</div>
+            <div class="display-valor" id="pin-display" aria-live="polite" aria-label="0 de 4 dígitos">○ ○ ○ ○</div>
+            <p id="pin-erro" class="campo-erro" role="alert"></p>
             <div class="numpad" id="pin-pad">
               ${[1,2,3,4,5,6,7,8,9].map(n => `<button class="btn" data-n="${n}">${n}</button>`).join('')}
               <button class="btn" data-n="C">C</button>
@@ -45,6 +46,7 @@ export function render(raiz, mensagem, aoEntrar) {
 
   let selecionado = null;
   let pin = '';
+  let autenticando = false;
 
   get('/auth/status').then((st) => {
     if (st.logo_path) {
@@ -104,8 +106,12 @@ export function render(raiz, mensagem, aoEntrar) {
   const display = raiz.querySelector('#pin-display');
   const btnOk = raiz.querySelector('#pin-ok');
   function refletir() {
-    display.textContent = pin ? '•'.repeat(pin.length) : '••••';
-    btnOk.disabled = pin.length < 4;
+    // PIN visual (spec): círculos preenchidos + vazios — 4 a 6 dígitos.
+    const cheios = '●'.repeat(pin.length);
+    const vazios = '○'.repeat(Math.max(0, 4 - pin.length));
+    display.textContent = (cheios + vazios).split('').join(' ');
+    display.setAttribute('aria-label', `${pin.length} de ${Math.max(4, pin.length)} dígitos`);
+    btnOk.disabled = pin.length < 4 || autenticando;
   }
   raiz.querySelectorAll('#pin-pad [data-n]').forEach((b) => {
     b.onclick = () => {
@@ -113,18 +119,31 @@ export function render(raiz, mensagem, aoEntrar) {
       if (n === 'C') pin = '';
       else if (n === '<') pin = pin.slice(0, -1);
       else if (pin.length < 6) pin += n;
+      const erro = raiz.querySelector('#pin-erro');
+      if (erro) erro.textContent = ''; // erro anterior some ao digitar de novo
       refletir();
     };
   });
   btnOk.onclick = async () => {
     if (!selecionado) { toast('Selecione seu usuário', 'erro'); return; }
+    if (autenticando) return; // trava duplo toque (o rate limit conta cada tentativa)
+    autenticando = true;
+    btnOk.disabled = true;
+    btnOk.textContent = 'Autenticando…';
     try {
       const r = await post('/auth/login', { usuario: selecionado, pin });
       aoEntrar(r);
     } catch (e) {
-      toast(e.message, 'erro');
       pin = '';
+      const erro = raiz.querySelector('#pin-erro');
+      if (erro) erro.textContent = e.message ?? 'PIN incorreto, tente novamente';
+      try { navigator.vibrate?.([120]); } catch { /* vibração é opcional por API */ }
+      toast(e.message, 'erro');
       refletir();
+    } finally {
+      autenticando = false;
+      btnOk.textContent = 'Entrar';
+      refletir(); // restaura o disabled conforme o PIN
     }
   };
 
@@ -137,8 +156,14 @@ export function render(raiz, mensagem, aoEntrar) {
     raiz.querySelector('#form-senha').style.display = 'none';
     raiz.querySelector('#area-pin').style.display = 'block';
   };
+  let entrandoSenha = false;
   raiz.querySelector('#form-senha').onsubmit = async (e) => {
     e.preventDefault();
+    if (entrandoSenha) return; // rate limit conta cada tentativa: sem duplo envio
+    entrandoSenha = true;
+    const btn = e.target.querySelector('.btn.primario');
+    const rotulo = btn?.textContent;
+    if (btn) { btn.disabled = true; btn.textContent = 'Autenticando…'; }
     try {
       const r = await post('/auth/login', {
         usuario: raiz.querySelector('#login-usuario').value.trim(),
@@ -146,5 +171,9 @@ export function render(raiz, mensagem, aoEntrar) {
       });
       aoEntrar(r);
     } catch (err) { toast(err.message, 'erro'); }
+    finally {
+      entrandoSenha = false;
+      if (btn) { btn.disabled = false; btn.textContent = rotulo; }
+    }
   };
 }

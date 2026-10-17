@@ -346,14 +346,28 @@ async function detalhe(p, conteudo, estadoApp, rotulo, abaInicial = 'itens') {
     corpo.querySelectorAll('[data-cancelar]').forEach((b) => {
       b.onclick = async () => {
         const item = atual.itens.find((i) => i.id === Number(b.dataset.cancelar));
-        const motivo = prompt('Motivo do cancelamento:');
-        if (!motivo || motivo.trim().length < 3) return;
-        if (!await confirmar('Cancelar item?', `"${item.nome_produto}" sairá da comanda.`)) return;
-        try {
-          await post(`/pedidos/${atual.id}/itens/${item.id}/cancelar`, { motivo: motivo.trim() });
-          toast('Item cancelado', 'ok');
-          await recarregar();
-        } catch (e) { toast(e.message, 'erro'); }
+        // Nunca prompt() nativo (quebra UX mobile): modal com motivo integrado.
+        const dlg = modal(`<h2>Cancelar item</h2>
+          <p>"${escapar(item.nome_produto)}" sairá da comanda.</p>
+          <label class="campo-titulo" for="cm-motivo">Motivo do cancelamento</label>
+          <input id="cm-motivo" class="campo" maxlength="200" autocomplete="off"
+            placeholder="Motivo (mínimo 3 caracteres)" />
+          <div class="modal-acoes">
+            <button class="btn ghost" data-a="manter">Manter item</button>
+            <button class="btn perigo" data-a="cancelar">Cancelar item</button>
+          </div>`);
+        dlg.caixa.querySelector('[data-a="manter"]').onclick = dlg.fechar;
+        dlg.caixa.querySelector('[data-a="cancelar"]').onclick = async () => {
+          const motivo = dlg.caixa.querySelector('#cm-motivo').value.trim();
+          if (motivo.length < 3) { toast('Informe um motivo (mínimo 3 caracteres)', 'erro'); return; }
+          dlg.fechar();
+          if (!await confirmar('Cancelar item?', `"${escapar(item.nome_produto)}" sairá da comanda.`)) return;
+          try {
+            await post(`/pedidos/${atual.id}/itens/${item.id}/cancelar`, { motivo });
+            toast('Item cancelado', 'ok');
+            await recarregar();
+          } catch (e) { toast(e.message, 'erro'); }
+        };
       };
     });
   };

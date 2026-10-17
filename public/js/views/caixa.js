@@ -68,9 +68,10 @@ async function atualizar(conteudo, estadoApp) {
 
   const e = atual.esperado;
   conteudo.innerHTML = `
-    <h2>${ic('dinheiro')} Caixa aberto</h2>
+    <h2>${ic('dinheiro')} Caixa <span class="badge ok">CAIXA ABERTO</span></h2>
     <div class="cartao" style="margin-bottom:12px">
       <p>Aberto por <strong>${escapar(atual.sessao.usuario_abertura_nome)}</strong> em ${new Date(atual.sessao.aberto_em).toLocaleString('pt-BR')} · Fundo: <strong style="font-family:var(--mono)">${fmt(atual.sessao.saldo_inicial_centavos)}</strong></p>
+      <p style="font-size:1.15rem;margin:10px 0 0">Em gaveta (dinheiro esperado): <strong class="mono" style="font-size:1.35rem;color:var(--ok)">${fmt(e['dinheiro'] ?? 0)}</strong></p>
       <table class="dados"><thead><tr><th scope="col">Forma</th><th scope="col">Esperado</th><th scope="col">Vendas fechadas</th><th scope="col">Em pedidos abertos</th></tr></thead>
       <tbody>${Object.keys(e).map((f) => `
         <tr><td>${escapar(f)}</td><td class="num"><strong>${fmt(e[f])}</strong></td><td class="num">${fmt(atual.vendas_fechadas[f] ?? 0)}</td><td class="num">${fmt(atual.recebido_pedidos_abertos[f] ?? 0)}</td></tr>`).join('')}
