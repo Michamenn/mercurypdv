@@ -20,6 +20,10 @@ node --test tests/01-auth.test.js
 .\scripts\backup.ps1
 ```
 
+> **⚠️ Nuvem AWS ativa**: produção em `http://<IP_PUBLICO>` (implantada em
+> 17/10/2026). Antes de operar a nuvem, leia `docs/17-operacao-aws.md`
+> (estado vivo + runbook — acesso via MCP `aws-mcp` e EC2 Instance Connect).
+
 ## Architecture Essentials
 
 - **Runtime**: Node.js ≥ 22.5 (uses `node:sqlite` native driver)
@@ -161,6 +165,14 @@ Required for: caixa sangria/suprimento, cancel item sent to kitchen, payment est
 | CSV (Excel pt-BR: BOM + `;`) | `core/csv.js` → `/relatorios/vendas.csv`, `/relatorios/resumo.csv` |
 | Endereço online (AWS) | config `url_publica` / env `LP_URL_PUBLICA` → QR Code em Configurações → Celular |
 | Deploy AWS | `DEPLOY_AWS.md` + `deploy/aws/` (EC2 compose, ECS Fargate, Beanstalk) |
+| Mesas em lote, lado a lado | `POST /api/mesas` aceita `quantidade` (1–50, numeração sequencial, `assentos` aplicado); `posicoesLivresNaGrade()` posiciona na grade 130px sem sobrepôr existentes; botão exige `pode_gerenciar_mesas` (não `pode_lancar_comanda`) |
+
+### 12. Nuvem AWS ativa (implantação de 17/10/2026)
+- **Produção no ar**: `http://<IP_PUBLICO>` — EC2 `t3.micro` (free tier) em `sa-east-1`, HTTP via Caddy, dados a partir do zero (cardápio de 35 itens já importado).
+- **Fonte de verdade da nuvem**: `docs/17-operacao-aws.md` (estado vivo + runbook: atualizar versão, logs, troca de IP, domínio/HTTPS, importar cardápio, pegadinhas).
+- **Acesso do agente**: APIs via MCP `aws-mcp` (não há AWS CLI/Docker locais); shell via EC2 Instance Connect — cada `ssh`/`scp` exige novo `SendSSHPublicKey` (válido 60 s). Detalhes no runbook.
+- **Cardápio semente**: `cardapio-para-importar.json` (raiz) — menu real da loja no formato de importação; serve para re-importar/replicar.
+- Mudanças na nuvem NÃO alteram o código local: o deploy copia o código para `/opt/mercury` na instância.
 
 ## Environment (.env)
 
@@ -204,6 +216,7 @@ LP_URL_PUBLICA=   # 1.3.1 — endereço online (AWS/domínio). Vazio = só rede 
 - `docs/14-manual-instalacao-vps.md` — Manual passo a passo explicativo da instalação na VPS
 - `docs/15-github-e-testes-online.md` — Subir no GitHub, CI dos testes e Codespaces
 - `docs/16-versao-1.3.1.md` — Notas da versão 1.3.1 (impressão, KDS inteligente, sino, CSV, sessões, AWS)
+- `docs/17-operacao-aws.md` — **Estado vivo da nuvem + runbook do agente** (instância, IP, acesso SSH, atualização de versão)
 - `DEPLOY_AWS.md` — Guia completo de implantação na AWS (EC2, ECS Fargate, Elastic Beanstalk)
 
 ## Permission Flags (from `permissoes` table)
