@@ -1,0 +1,67 @@
+# ============================================================
+# Mercury PDV 1.3.1 — Docker Compose para instância EC2 (produção na AWS)
+#
+# Uso (na raiz do projeto, dentro da instância EC2):
+#   cp deploy/aws/.env.example deploy/aws/.env   # preencha LP_PEPPER e LP_URL_PUBLICA
+#   docker compose -f deploy/aws/docker-compose.yml up -d --build
+#
+# Arquitetura: só o Caddy recebe tráfego da internet (80/443 com HTTPS
+# automático via Let's Encrypt). O container `app` NÃO é publicado.
+# Dados (SQLite WAL) persistem em volumes nomeados — sobrevivem a redeploys.
+# Guia completo: DEPLOY_AWS.md
+# ============================================================
+
+name: mercury-pdv-aws
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/aws/Dockerfile
+    image: mercury-pdv:1.3.1
+    restart: unless-stopped
+    stop_grace_period: 20s        # tempo para o checkpoint do WAL no encerramento
+    env_file: .env
+    environment:
+      LP_HOST: 0.0.0.0
+      LP_PORTA: "3000"
+      # Endereço público usado nos QR Codes "online" e no painel Dev (sem barra final)
+      LP_URL_PUBLICA: ${LP_URL_PUBLICA:-}
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - vol_dados:/app/data        # banco SQLite (NUNCA servido por HTTP)
+      - vol_backups:/app/backups   # backups VACUUM INTO (auto a cada 6h)
+      - vol_logs:/app/logs         # logs da aplicação
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    networks: [interna]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"    # HTTP -> redireciona para HTTPS
+      - "443:443"  # HTTPS com certificado Let's Encrypt (domínio em LP_URL_PUBLICA / Caddyfile)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - vol_caddy:/data
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [interna]
+
+volumes:
+  vol_dados:
+  vol_backups:
+  vol_logs:
+  vol_caddy:
+
+networks:
+  interna:

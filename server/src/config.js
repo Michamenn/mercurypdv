@@ -42,6 +42,9 @@ export const config = {
   backupIntervaloHoras: Number(env('LP_BACKUP_INTERVALO_HORAS', '6')),
   backupRetencao: Number(env('LP_BACKUP_RETENCAO', '30')),
   ambiente: env('LP_AMBIENTE', 'producao'),
+  // 1.3.1: endereço público da instalação (AWS/EC2, ALB, Elastic Beanstalk ou
+  // VPS). Usado no QR Code "online" do painel e no módulo de conexão mobile.
+  urlPublica: String(env('LP_URL_PUBLICA', '')).replace(/\/+$/, ''),
 };
 
 // Pepper obrigatorio: se ausente/curto no .env existente, gera e acrescenta.

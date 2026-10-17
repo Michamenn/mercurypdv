@@ -1,0 +1,17 @@
+{
+  "//guia": "Mercury PDV 1.3.1 — Elastic Beanstalk (plataforma 'Docker running on AL2023'). Formato Dockerrun.aws.json v1: imagem pronta do ECR + volumes persistentes no host. Substitua <ACCOUNT_ID> e <REGION>. O LP_PEPPER e o LP_URL_PUBLICA entram via .ebextensions/options.config (veja DEPLOY_AWS.md §5) — nunca aqui. Alternativa sem ECR: suba o bundle fonte com o Dockerfile na raiz; o Beanstalk constrói a imagem na instância (mesmos volumes abaixo).",
+  "AWSEBDockerrunVersion": "1",
+  "Image": {
+    "Name": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/mercury-pdv:1.3.1",
+    "Update": "true"
+  },
+  "Ports": [
+    { "ContainerPort": 3000 }
+  ],
+  "Volumes": [
+    { "HostDirectory": "/var/app/mercury-data", "ContainerDirectory": "/app/data" },
+    { "HostDirectory": "/var/app/mercury-backups", "ContainerDirectory": "/app/backups" },
+    { "HostDirectory": "/var/app/mercury-logs", "ContainerDirectory": "/app/logs" }
+  ],
+  "Logging": "/app/logs"
+}

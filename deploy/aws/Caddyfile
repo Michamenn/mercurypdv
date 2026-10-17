@@ -1,0 +1,41 @@
+# ============================================================
+# Mercury PDV 1.3.1 — Caddy reverso com HTTPS automático (Let's Encrypt)
+#
+# Substitua {$MERCURY_DOMINIO} pelo seu domínio (ex: pdv.sualanchonete.com.br):
+#   export MERCURY_DOMINIO=pdv.sualanchonete.com.br
+# ou edite a primeira linha com o domínio fixo.
+# O Caddy emite e renova o certificado sozinho — portas 80/443 devem estar
+# liberadas no Security Group da instância EC2.
+#
+# Sem domínio ainda? Use :80 na primeira linha (só HTTP) e troque depois.
+# ============================================================
+
+{$MERCURY_DOMINIO} {
+	encode gzip zstd
+
+	# Proxy para o container `app` (rede interna do compose — nunca exposto direto)
+	reverse_proxy app:3000
+
+	header {
+		# Segurança básica (mesmos cabeçalhos do Express + extras de borda)
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	# WebSocket (/ws) não precisa de bloco especial: o reverse_proxy do
+	# Caddy faz upgrade de conexão automaticamente (KDS e notificações em tempo real).
+}
+
+# ------------------------------------------------------------
+# Modo HTTP puro (antes de ter domínio/certificado) — comente o
+# bloco acima e descomente este:
+# ------------------------------------------------------------
+# :80 {
+# 	encode gzip zstd
+# 	reverse_proxy app:3000
+# 	header X-Content-Type-Options nosniff
+# 	header X-Frame-Options DENY
+# }

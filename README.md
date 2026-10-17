@@ -1,7 +1,8 @@
-# Mercury PDV 1.3
+# Mercury PDV 1.3.1
 
-PDV offline-first para lanchonetes: caixa, comandas, KDS, estoque e relatórios
-em rede local. **Funciona sem internet.**
+PDV offline-first para lanchonetes: caixa, comandas, KDS inteligente, impressão
+térmica, notificações em tempo real, estoque e relatórios com CSV. **Funciona
+sem internet na rede local — e também na nuvem AWS.**
 
 ---
 
@@ -73,36 +74,34 @@ para esta pasta. Não compartilhe esse arquivo.
 
 ---
 
-## O que é diferente da versão 1.1
+## O que é diferente da versão 1.3
 
-Esta é a **1.3**. As principais mudanças:
+Esta é a **1.3.1**. As principais mudanças:
 
 ### Novidades
 
 | Entrega | O que faz |
 |---|---|
-| **Salão Pro** | Mapa do salão com coordenadas, mesas arrastáveis, junção e transferência de mesas |
-| **Comanda individual** | Mais de uma conta na mesma mesa, por cliente |
-| **Check-in de cliente** | Registrar o cliente ao abrir a comanda |
-| **Taxa de serviço** | Percentual ou valor fixo, por conta |
-| **Gorjeta e comissão** | Gorjeta por garçom e cálculo de comissão |
-| **Comandas no celular** | Tela própria para o garçom consultar comandas pelo celular |
-| **Central de personalização** | Tema, fonte, cores, densidade e menu em um só lugar |
-| **QR Code local** | Gerado no próprio aparelho — não envia o endereço da rede a terceiros |
-| **Organização** | Administração em 4 categorias, com busca |
+| **Impressão térmica customizável** | Impressoras USB/Bluetooth/Rede IP, bobinas 58/80mm, cabeçalho/rodapé próprios e pré-visualização em tempo real |
+| **Tempo de preparo & KDS inteligente** | Cada produto tem tempo estimado; a cozinha vê cronômetro, progresso e alerta de atraso por pedido |
+| **Notificações em tempo real** | Sino no topo avisa garçons e atendentes quando o pedido fica pronto, com não lidas e limpeza |
+| **Relatórios com CSV** | Faturamento, ticket médio, pedidos e formas de pagamento exportáveis direto em CSV (Excel pt-BR) |
+| **Sincronização de dispositivos** | `⟳ N dispositivos` no topo: PDV, garçons e celular atualizando juntos, com status online/offline |
+| **Cloud AWS & DevOps** | Guia `DEPLOY_AWS.md` + Dockerfile e docker-compose otimizados para EC2, ECS Fargate e Elastic Beanstalk |
+| **Sessões ativas** | Quem está logado (web/celular/APK), IP, última atividade e desconexão imediata |
+| **Celular online ou local** | QR Code da rede local **e** endereço público na nuvem (`https://pdv.sualanchonete.com.br`) |
+| **Mesas em lote** | Crie até 50 mesas de uma vez, numeradas em sequência e dispostas lado a lado no mapa |
 
+> Detalhes por entrega: `docs/16-versao-1.3.1.md`.
 ### Correções
 
 | Antes | Agora |
 |---|---|
-| Tela do Caixa ficava em branco sem internet | Mostra "Sem conexão" e **mantém os últimos números** |
-| Botão "Cobrar Mesa" nunca funcionava | Corrigido |
-| Botões chamavam rotas que não existiam | Removidos |
-| "Salvar" das configurações ficava no topo de uma página longa | Barra fixa no rodapé, com aviso de alteração não salva |
-| Zoom era bloqueado no celular | Liberado |
-| Vários textos com contraste insuficiente | Todos corrigidos |
+| IP ficava vazio nas sessões criadas no login | IP gravado desde o login (middleware global) |
+| WebSocket com token inválido estourava exceção | Responde `auth_erro` e segue |
+| Atraso do KDS usava 15 min fixos | Atraso calculado pelo tempo de preparo do pedido |
 
-**Acessibilidade auditada: 19 telas em 100, zero falhas.**
+**Testes: 194 automatizados, todos passando.**
 
 ---
 
@@ -112,22 +111,23 @@ Esta é a **1.3**. As principais mudanças:
 npm test
 ```
 
-Resultado esperado: **183 testes, 183 passando.**
+Resultado esperado: **195 testes, 195 passando.**
 
 ---
 
 ## Estrutura
 
 ```
-MercuryPDV 1.3/
+MercuryPDV 1.3.1/
 ├── data/          banco SQLite (já criado, vazio)
 ├── backups/       cópias de segurança automáticas
 ├── logs/          registro do servidor
 ├── public/        interface (HTML, CSS, JavaScript)
 ├── server/        backend (Node.js + Express)
 ├── scripts/       iniciar, parar, backup, firewall, restaurar
+├── deploy/         VPS (Docker) e deploy/aws/ (EC2, Fargate, Beanstalk)
 ├── docs/          manuais e documentação técnica
-├── tests/         183 testes automatizados
+├── tests/         195 testes automatizados
 └── node_modules/  dependências (já instaladas)
 ```
 
@@ -156,6 +156,17 @@ http://192.168.X.X:3000
 ```
 
 Se o Windows bloquear, rode uma vez: `.\scripts\firewall.ps1`
+
+## Nuvem AWS (acesso de qualquer lugar)
+
+Para os garçons conectarem **de fora da loja**, implante na AWS com o guia
+completo **`DEPLOY_AWS.md`** (EC2 + Docker Compose, ECS Fargate ou Elastic
+Beanstalk) e defina o endereço público em *Configurações → Celular → Online*.
+O sistema gera o QR Code online no padrão:
+
+```
+https://pdv.sualanchonete.com.br/#comandas
+```
 
 ---
 

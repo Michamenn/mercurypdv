@@ -108,7 +108,12 @@ test('MOD-007: nenhuma URL externa é usada no frontend (offline-first)', () => 
   const externos = [];
   for (const a of alvos) {
     const s = ler(a);
-    for (const m of s.matchAll(/https?:\/\/[^\s'"`)]+/g)) {
+    // 1.3.1: placeholders de exemplo ("ex: https://pdv.seudominio...") são
+    // documentação de input, não dependência — o valor real vem do servidor
+    // (url_publica configurada pelo admin) ou da própria origem.
+    const codigo = s.replace(/placeholder="[^"]*"/g, 'placeholder=""')
+      .replace(/title="[^"]*"/g, 'title=""');
+    for (const m of codigo.matchAll(/https?:\/\/[^\s'"`)]+/g)) {
       const url = m[0];
       // URLs montadas a partir da própria origem (window.location) são locais
       // e legítimas; o que viola o offline-first é depender de um domínio externo.

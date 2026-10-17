@@ -1,1 +1,20 @@
-﻿{"name":"mercury-pdv","version":"1.3.0","description":"Mercury PDV 1.3 - PDV offline-first para lanchonetes: caixa, comandas, KDS, estoque e relatorios em rede local.","private":true,"type":"module","engines":{"node":"\u003e=22.5.0"},"scripts":{"start":"node server/src/index.js","dev":"node server/src/index.js","test":"node --test tests/01-auth.test.js tests/02-pdv.test.js tests/03-mesas-kds-estoque.test.js tests/04-backup.test.js tests/05-combos-mesas.test.js tests/06-frontend-modulos.test.js tests/07-cardapio.test.js tests/08-estoque-a2.test.js tests/09-salao.test.js tests/10-evolucao.test.js tests/11-cardapio-backup.test.js tests/12-icones.test.js tests/13-pdv-fechamento.test.js tests/14-caixa-pagamentos.test.js tests/15-login-ui.test.js tests/16-pagamento-troco.test.js tests/17-salao-pro.test.js tests/18-modernizacao-fase1.test.js tests/19-qrcode.test.js tests/20-admin-categorias.test.js tests/21-personalizacao.test.js tests/22-comandas-mobile.test.js tests/23-componentes.test.js tests/24-config-organizacao.test.js tests/25-acessibilidade.test.js","backup":"node server/src/tools/backup.js"},"dependencies":{"express":"^5.1.0","ws":"^8.18.0"}}
+﻿{
+  "name": "mercury-pdv",
+  "version": "1.3.1",
+  "description": "Mercury PDV 1.3.1 - PDV offline-first para lanchonetes: caixa, comandas, KDS inteligente, impressao termica, notificacoes em tempo real, sessoes e deploy AWS (EC2/ECS Fargate/Beanstalk).",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server/src/index.js",
+    "dev": "node server/src/index.js",
+    "test": "node --test tests/01-auth.test.js tests/02-pdv.test.js tests/03-mesas-kds-estoque.test.js tests/04-backup.test.js tests/05-combos-mesas.test.js tests/06-frontend-modulos.test.js tests/07-cardapio.test.js tests/08-estoque-a2.test.js tests/09-salao.test.js tests/10-evolucao.test.js tests/11-cardapio-backup.test.js tests/12-icones.test.js tests/13-pdv-fechamento.test.js tests/14-caixa-pagamentos.test.js tests/15-login-ui.test.js tests/16-pagamento-troco.test.js tests/17-salao-pro.test.js tests/18-modernizacao-fase1.test.js tests/19-qrcode.test.js tests/20-admin-categorias.test.js tests/21-personalizacao.test.js tests/22-comandas-mobile.test.js tests/23-componentes.test.js tests/24-config-organizacao.test.js tests/25-acessibilidade.test.js tests/26-impressao-sessoes.test.js tests/27-notificacoes-kds.test.js",
+    "backup": "node server/src/tools/backup.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "ws": "^8.18.0"
+  }
+}

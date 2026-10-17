@@ -26,6 +26,12 @@ const TELAS_ORIGINAIS = [
   ['dev', 'pode_config_sistema'],
 ];
 
+// Telas acrescentadas na 1.3.1 (impressão térmica e sessões ativas).
+const TELAS_V131 = [
+  ['impressao', 'pode_config_sistema'],
+  ['sessoes', 'pode_gerenciar_usuarios'],
+];
+
 // Cada tela original precisa estar declarada em CATEGORIAS_ADMIN.
 const blocoCategorias = admin.slice(
   admin.indexOf('const CATEGORIAS_ADMIN'),
@@ -44,7 +50,7 @@ test('MOD-010: todas as telas originais continuam declaradas', () => {
 test('MOD-011: nenhuma tela foi removida e nenhuma foi inventada', () => {
   const declaradas = [...blocoCategorias.matchAll(/\['(\w+)',\s*'(\w+)',\s*'([^']+)',\s*'(pode_\w+)'/g)]
     .map((m) => m[1]);
-  const esperadas = [...TELAS_ORIGINAIS.map(([id]) => id), 'comissoes'];
+  const esperadas = [...TELAS_ORIGINAIS.map(([id]) => id), 'comissoes', ...TELAS_V131.map(([id]) => id)];
   for (const id of declaradas) {
     assert.ok(esperadas.includes(id), `tela inesperada "${id}"`);
   }

@@ -1,5 +1,5 @@
-﻿// Service worker: cache somente de ASSETS estÃ¡ticos. API Ã© sempre rede (o servidor Ã© a verdade).
-const CACHE = 'mpdv13-v1';
+﻿// Service worker: cache somente de ASSETS estáticos. API é sempre rede (o servidor é a verdade).
+const CACHE = 'mpdv131-v1';
 const ASSETS = ['/', '/index.html', '/css/app.css', '/css/componentes.css', '/js/app.js', '/js/api.js', '/js/ui.js', '/js/ws.js', '/js/offdb.js',
   '/js/recibo.js', '/js/offline-bridge.js', '/js/a11y.js', '/js/theme.js', '/js/sound.js', '/js/pdfExport.js', '/js/icons.js',
   '/vendor/jspdf.umd.min.js', '/vendor/jspdf.plugin.autotable.min.js', '/manifest.webmanifest',

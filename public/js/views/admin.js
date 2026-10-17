@@ -33,6 +33,7 @@ const CATEGORIAS_ADMIN = [
     id: 'pessoas', rotulo: 'Pessoas', icone: 'pessoas',
     abas: [
       ['usuarios', 'chave', 'Usuários', 'pode_gerenciar_usuarios', 'Contas, credenciais e desbloqueio'],
+      ['sessoes', 'antena', 'Sessões ativas', 'pode_gerenciar_usuarios', 'Logados via web e celular, com IP e desconexão'],
       ['permissoes', 'cadeado', 'Permissões', 'pode_config_sistema', 'O que cada cargo pode fazer'],
     ],
   },
@@ -40,10 +41,11 @@ const CATEGORIAS_ADMIN = [
     id: 'sistema', rotulo: 'Sistema', icone: 'engrenagem',
     abas: [
       ['config', 'engrenagem', 'Configurações', 'pode_config_sistema', 'Empresa, módulos, salão e taxa de serviço'],
+      ['impressao', 'impressora', 'Impressão', 'pode_config_sistema', 'Impressoras térmicas 58/80mm com pré-visualização'],
       ['tema', 'paleta', 'Aparência', 'pode_config_sistema', 'Tema, cores, densidade e navegação'],
       ['backups', 'disquete', 'Backups', 'pode_backup', 'Cópias de segurança e restauração'],
       ['auditoria', 'lupa', 'Auditoria', 'pode_gerenciar_usuarios', 'Histórico de operações sensíveis'],
-      ['dev', 'ferramentas', 'Suporte técnico', 'pode_config_sistema', 'Diagnóstico do servidor'],
+      ['dev', 'ferramentas', 'Suporte técnico', 'pode_config_sistema', 'Diagnóstico, dispositivos e Cloud AWS'],
     ],
   },
 ];
@@ -56,8 +58,10 @@ const TELAS_ADMIN = {
   combos: (painel, estadoApp) => renderCombos(painel, null, estadoApp),
   estoque: telaEstoque,
   usuarios: telaUsuarios,
+  sessoes: telaSessoes,
   permissoes: telaPermissoes,
   config: telaConfig,
+  impressao: telaImpressao,
   tema: telaTema,
   backups: telaBackups,
   auditoria: telaAuditoria,
@@ -171,9 +175,19 @@ async function telaRelatorios(painel) {
         <button class="btn primario" id="ver">${ic('lupa')} Ver Relatório</button>
         <button class="btn" id="exportar-pdf" disabled title="Gere o relatório primeiro">${ic('documento')} Exportar PDF</button>
         <button class="btn" id="exportar-vendas-pdf" disabled title="Gere o relatório primeiro">${ic('prancheta')} Lista Vendas PDF</button>
+        <button class="btn" id="exportar-csv-vendas" title="Baixa CSV detalhado de cada venda (Excel pt-BR)">${ic('download')} Vendas CSV</button>
+        <button class="btn" id="exportar-csv-resumo" title="Baixa CSV do resumo: faturamento, ticket médio e formas de pagamento">${ic('download')} Resumo CSV</button>
       </div>
     </div>
     <div id="resumo" class="vazio">Escolha o período</div>`;
+
+  const baixarCsv = (caminho) => {
+    const de = painel.querySelector('#de').value, ate = painel.querySelector('#ate').value;
+    window.location.href = `/api/relatorios/${caminho}?de=${de}&ate=${ate}`;
+    toast('Exportando CSV…', 'ok');
+  };
+  painel.querySelector('#exportar-csv-vendas').onclick = () => baixarCsv('vendas.csv');
+  painel.querySelector('#exportar-csv-resumo').onclick = () => baixarCsv('resumo.csv');
   
   painel.querySelector('#ver').onclick = () => carregar();
   painel.querySelector('#exportar-pdf').onclick = async () => {
@@ -363,8 +377,10 @@ async function telaProdutos(painel, estadoApp) {
       <input id="custo" inputmode="decimal" value="${p?.custo_centavos ? (p.custo_centavos / 100).toFixed(2).replace('.', ',') : ''}" style="width:100%;padding:12px;margin-top:8px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" placeholder="Custo (opcional, p/ margem)"/>
       <div style="display:flex;gap:8px;margin-top:8px">
         <input id="rend" type="number" min="1" value="${p?.rendimento_porcoes ?? 1}" title="Rendimento (porções por receita)" style="flex:1;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" placeholder="Rendimento (porções)"/>
+        <input id="tempo" type="number" min="0" max="600" value="${p?.tempo_preparo_min ?? 10}" title="Tempo estimado de preparo em minutos — alimenta os cronômetros da cozinha (KDS)" style="flex:1;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" placeholder="Preparo (min)" aria-label="Tempo de preparo estimado em minutos"/>
         ${p ? `<button type="button" class="btn" id="recalc" style="flex:2" title="Recalcula o custo pela ficha + perda e atualiza a margem">${ic('calculadora')} Recalcular custo da ficha</button>` : ''}
       </div>
+      <p><small style="color:var(--texto-fraco)">${ic('relogio')} Tempo de preparo em minutos: usado pelo KDS para estimar quando o pedido fica pronto.</small></p>
       <div id="margem-info"></div>
       <input id="codbar" value="${escapar(p?.codigo_barras ?? '')}" style="width:100%;padding:12px;margin-top:8px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" placeholder="Código de barras (opcional, p/ bip)"/>
       <input id="apelidos" value="${escapar(p?.apelidos ?? '')}" style="width:100%;padding:12px;margin-top:8px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" placeholder="Apelidos p/ busca, separados por vírgula"/>
@@ -387,6 +403,7 @@ async function telaProdutos(painel, estadoApp) {
           apelidos: m.caixa.querySelector('#apelidos').value.trim() || null,
           indisponivel_motivo: m.caixa.querySelector('#indisp').value.trim() || null,
           rendimento_porcoes: Number(m.caixa.querySelector('#rend').value) || 1,
+          tempo_preparo_min: Math.max(0, Number(m.caixa.querySelector('#tempo').value) || 0),
           area: m.caixa.querySelector('#area').value,
           ativo: m.caixa.querySelector('#ativo').checked ? 1 : 0,
         };
@@ -898,15 +915,22 @@ async function telaConfig(painel) {
   // Calcula a URL de acesso mobile a partir da origem em que o painel está
   // aberto — funciona em localhost e em qualquer IP da rede local.
   const urlMobile = `${window.location.origin}/#comandas`;
+  // 1.3.1 — endereço ONLINE (AWS/EC2/ALB ou domínio próprio). Quando definido,
+  // garçons conectam de qualquer lugar pelo link público; vazio = só rede local.
+  const urlOnline = String(cfg.url_publica ?? '').trim() ? `${String(cfg.url_publica).replace(/\/+$/, '')}/#comandas` : '';
 
-  // QR Code gerado LOCALMENTE (P-03): nada sai da rede local. O serviço
+  // QR Codes gerados LOCALMENTE (P-03): nada sai da rede local. O serviço
   // externo usado antes também enviava o endereço da rede a terceiros.
   let qrSvg = '';
+  let qrSvgOnline = '';
   try {
     qrSvg = qrcodeSVG(urlMobile, { tamanho: 200, margem: 3 });
   } catch (e) {
     qrSvg = `<div class="vazio">Não foi possível gerar o QR Code local.</div>`;
   }
+  try {
+    if (urlOnline) qrSvgOnline = qrcodeSVG(urlOnline, { tamanho: 200, margem: 3 });
+  } catch { /* online opcional */ }
 
   // Cada seção tem um id para o menu de âncoras do topo. A ordem aqui é a
   // ordem em que aparecem na tela.
@@ -1000,18 +1024,37 @@ async function telaConfig(painel) {
     </div>
 
     <div class="cartao cartao-secao" id="cfg-celular">
-      <h3 class="cartao-titulo">${ic('celular')} Acesso às Comandas no Celular</h3>
-      <p><small style="color:var(--texto-fraco)">Escaneie com a câmera do celular. O QR Code é gerado aqui mesmo, sem enviar o endereço da sua rede a nenhum serviço externo.</small></p>
-      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-        <div style="background:#fff;padding:8px;border-radius:10px;box-shadow:var(--shadow-2)">${qrSvg}</div>
-        <div style="flex:1;min-width:200px">
-          <label class="sr-only" for="url-mobile">Endereço de acesso</label>
-          <code id="url-mobile" style="display:block;padding:10px;background:var(--canvas);border-radius:8px;border:1px solid var(--borda);word-break:break-all;font-size:0.9rem">${escapar(urlMobile)}</code>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-            <button class="btn ghost" id="copiar-url">${ic('check')} Copiar Link</button>
-            <a class="btn ghost" href="${escapar(urlMobile)}" target="_blank" rel="noopener">${ic('celular')} Testar</a>
+      <h3 class="cartao-titulo">${ic('celular')} Conexão via Celular — Rede Local e Online (AWS)</h3>
+      <p><small style="color:var(--texto-fraco)">Escaneie com a câmera do celular. Os QR Codes são gerados aqui mesmo, sem enviar o endereço da sua rede a nenhum serviço externo.</small></p>
+      <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:260px">
+          <h4>${ic('antena')} Rede local (Wi-Fi)</h4>
+          <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+            <div style="background:#fff;padding:8px;border-radius:10px;box-shadow:var(--shadow-2)">${qrSvg}</div>
+            <div style="flex:1;min-width:200px">
+              <label class="sr-only" for="url-mobile">Endereço de acesso local</label>
+              <code id="url-mobile" style="display:block;padding:10px;background:var(--canvas);border-radius:8px;border:1px solid var(--borda);word-break:break-all;font-size:0.9rem">${escapar(urlMobile)}</code>
+              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <button class="btn ghost" id="copiar-url">${ic('check')} Copiar Link</button>
+                <a class="btn ghost" href="${escapar(urlMobile)}" target="_blank" rel="noopener">${ic('celular')} Testar</a>
+              </div>
+              <p><small style="color:var(--texto-fraco)">O celular precisa estar na <strong>mesma rede Wi-Fi</strong> deste computador.</small></p>
+            </div>
           </div>
-          <p><small style="color:var(--texto-fraco)">O celular precisa estar na <strong>mesma rede Wi-Fi</strong> deste computador.</small></p>
+        </div>
+        <div style="flex:1;min-width:260px;border-left:1px solid var(--borda);padding-left:20px">
+          <h4>${ic('globo')} Online — servidor na nuvem (AWS)</h4>
+          <label><span class="campo-titulo">Endereço público (deixe vazio p/ só rede local)</span>
+            <input class="campo" data-cfg="url_publica" value="${escapar(cfg.url_publica ?? '')}" placeholder="https://pdv.sualanchonete.com.br" /></label>
+          ${urlOnline ? `
+            <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:10px">
+              <div style="background:#fff;padding:8px;border-radius:10px;box-shadow:var(--shadow-2)">${qrSvgOnline}</div>
+              <div style="flex:1;min-width:200px">
+                <code id="url-online" style="display:block;padding:10px;background:var(--canvas);border-radius:8px;border:1px solid var(--borda);word-break:break-all;font-size:0.9rem">${escapar(urlOnline)}</code>
+                <p><small style="color:var(--texto-fraco)">Funciona de qualquer lugar com internet — sem Wi-Fi da loja. Salve o campo acima para gerar o QR.</small></p>
+              </div>
+            </div>` : `
+            <p><small style="color:var(--texto-fraco)">Defina o endereço do seu servidor na nuvem (EC2, ECS Fargate ou Elastic Beanstalk) e salve. O guia completo está em <code>DEPLOY_AWS.md</code> e no painel do desenvolvedor.</small></p>`}
         </div>
       </div>
     </div>
@@ -1244,7 +1287,81 @@ async function telaDev(painel) {
   painel.querySelector('#entrar').onclick = async () => {
     try {
       const r = await post('/admin/dev', { admin_usuario: painel.querySelector('#usuario').value.trim(), admin_senha: painel.querySelector('#senha').value });
-      painel.querySelector('#saida').innerHTML = `<table class="dados"><tbody>${Object.entries(r.diagnostico).map(([k, v]) => `<tr><td>${escapar(k)}</td><td class="num">${escapar(String(v))}</td></tr>`).join('')}</tbody></table>`;
+      const d = r.diagnostico;
+      const rotuloInd = {
+        node: 'Node.js', uptime_s: 'Uptime (s)', ambiente: 'Ambiente', db_bytes: 'Banco (bytes)',
+        seq_eventos: 'Seq de eventos', usuarios: 'Usuários', pedidos_abertos: 'Pedidos abertos',
+        caixa_aberto: 'Caixa aberto', backups: 'Backups', mem_mb: 'Memória (MB)',
+        dispositivos_conectados: 'Dispositivos conectados', url_publica: 'Endereço online', versao: 'Versão',
+      };
+      painel.querySelector('#saida').innerHTML = `
+        <div class="abas" style="margin-top:14px" role="tablist" aria-label="Seções do painel dev">
+          <button class="btn ativa" role="tab" aria-selected="true" data-dev="diag">Diagnóstico</button>
+          <button class="btn" role="tab" aria-selected="false" data-dev="aws">${ic('globo')} Cloud AWS & DevOps</button>
+          <button class="btn" role="tab" aria-selected="false" data-dev="disp">${ic('antena')} Dispositivos</button>
+        </div>
+        <div id="dev-conteudo" class="cartao" style="margin-top:10px"></div>`;
+      const area = painel.querySelector('#dev-conteudo');
+
+      const telas = {
+        diag: () => {
+          area.innerHTML = `<table class="dados"><tbody>${Object.entries(d).map(([k, v]) => `<tr><td>${escapar(rotuloInd[k] ?? k)}</td><td class="num">${escapar(String(v))}</td></tr>`).join('')}</tbody></table>`;
+        },
+        aws: () => {
+          const url = d.url_publica || '';
+          let qr = '';
+          try { if (url) qr = qrcodeSVG(`${url}/#comandas`, { tamanho: 150, margem: 3 }); } catch { /* opcional */ }
+          area.innerHTML = `
+            <h3 style="margin-top:0">${ic('globo')} Cloud AWS & DevOps (1.3.1)</h3>
+            <p><small style="color:var(--texto-fraco)">Guia completo em <code>DEPLOY_AWS.md</code> na raiz do projeto. Arquivos prontos em <code>deploy/aws/</code>.</small></p>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+              <div style="flex:1;min-width:240px">
+                <h4>${ic('celular')} Endereço de conexão online</h4>
+                ${url ? `
+                  <code style="display:block;padding:10px;background:var(--canvas);border-radius:8px;border:1px solid var(--borda);word-break:break-all">${escapar(url)}</code>
+                  <p><small style="color:var(--texto-fraco)">Garçons conectam pelo celular em <strong>${escapar(url)}/#comandas</strong> — de qualquer lugar com internet.</small></p>` : `
+                  <div class="vazio" style="padding:10px">Sem endereço configurado. Defina em <strong>Configurações → Celular → Online (AWS)</strong> ou via <code>LP_URL_PUBLICA</code> no <code>.env</code>.</div>`}
+                ${qr ? `<div style="background:#fff;padding:8px;border-radius:10px;display:inline-block;margin-top:8px">${qr}</div>` : ''}
+              </div>
+              <div style="flex:1;min-width:260px">
+                <h4>${ic('pacote')} Caminhos de implantação</h4>
+                <table class="dados"><tbody>
+                  <tr><td><strong>EC2 + Docker Compose</strong></td><td><code>deploy/aws/docker-compose.yml</code> — o mais simples e barato; dados em volume EBS</td></tr>
+                  <tr><td><strong>ECS Fargate</strong></td><td><code>deploy/aws/ecs-task-definition.json</code> — sem servidor gerenciar; dados em EFS</td></tr>
+                  <tr><td><strong>Elastic Beanstalk</strong></td><td><code>deploy/aws/Dockerrun.aws.json</code> — plataforma Docker gerenciada</td></tr>
+                </tbody></table>
+                <h4>Comandos rápidos</h4>
+                <pre style="background:var(--canvas);padding:10px;border-radius:8px;border:1px solid var(--borda);overflow:auto;font-size:0.8rem"># build e push p/ ECR
+aws ecr get-login-password | docker login ...
+docker build -t mercury-pdv:1.3.1 -f deploy/aws/Dockerfile .
+# EC2 (na instância)
+docker compose -f deploy/aws/docker-compose.yml up -d --build</pre>
+              </div>
+            </div>`;
+        },
+        disp: async () => {
+          let r = { total: 0, itens: [] };
+          try { r = await get('/dispositivos'); } catch { /* segue */ }
+          area.innerHTML = `
+            <h3 style="margin-top:0">${ic('antena')} Dispositivos sincronizados (${r.total ?? 0})</h3>
+            <table class="dados"><thead><tr><th scope="col">Operador</th><th scope="col">Cargo</th><th scope="col">Origem</th><th scope="col">IP</th><th scope="col">Conectado desde</th></tr></thead>
+            <tbody>${(r.itens ?? []).map((c) => `<tr>
+              <td>${escapar(c.usuario)}</td><td>${escapar(c.cargo)}</td>
+              <td>${ic('celular')} ${escapar(c.dispositivo)}</td>
+              <td><small>${escapar(c.ip ?? '—')}</small></td>
+              <td><small>${new Date(c.desde).toLocaleString('pt-BR')}</small></td>
+            </tr>`).join('') || '<tr><td colspan="5" class="vazio">Nenhum dispositivo conectado via WebSocket agora (PDV, garçom mobile, web)</td></tr>'}</tbody></table>
+            <p><small style="color:var(--texto-fraco)">Sessões completas (IP, última atividade, desconexão) ficam na aba <strong>Pessoas → Sessões ativas</strong>.</small></p>`;
+        },
+      };
+      painel.querySelectorAll('[data-dev]').forEach((b) => {
+        b.onclick = () => {
+          painel.querySelectorAll('[data-dev]').forEach((x) => { x.classList.remove('ativa'); x.setAttribute('aria-selected', 'false'); });
+          b.classList.add('ativa'); b.setAttribute('aria-selected', 'true');
+          telas[b.dataset.dev]();
+        };
+      });
+      telas.diag();
     } catch (e) { toast(e.message, 'erro'); }
   };
 }
@@ -1265,5 +1382,280 @@ async function telaTema(painel, estadoApp) {
     <div id="pers-raiz"></div>`;
   renderPersonalizacao(painel.querySelector('#pers-raiz'), {
     podeConfigSistema: !!estadoApp?.permissoes?.pode_config_sistema,
+  });
+}
+
+// ============================================================
+// 1.3.1 — IMPRESSÃO TÉRMICA CUSTOMIZÁVEL
+// Cadastro de impressoras USB / Bluetooth / Rede IP com bobina 58 ou 80mm,
+// cabeçalho/rodapé personalizados e pré-visualização em tempo real.
+// A impressão física continua via diálogo do sistema operacional (instale a
+// impressora no Windows/celular); o Mercury formata o layout da bobina.
+// ============================================================
+const ROTULO_CONEXAO = { usb: 'USB', bluetooth: 'Bluetooth', rede: 'Rede (IP)' };
+
+// Gera o texto da pré-visualização (igual ao servidor, sem rede).
+function previaImpressao({ nome, conexao, endereco, largura, cabecalho, rodape, vias }, cfgEmpresa) {
+  const larg = Number(largura) === 58 ? 30 : 40;
+  const linha = '-'.repeat(larg);
+  const cab = String(cabecalho ?? '').split(/\r?\n/).filter(Boolean);
+  const rod = String(rodape ?? '').split(/\r?\n/).filter(Boolean);
+  const itens = [
+    { q: 2, nome: 'X-Burger (exemplo)', total: '50,00' },
+    { q: 1, nome: 'Refrigerante (exemplo)', total: '6,00' },
+  ];
+  return [
+    ...cab,
+    cfgEmpresa?.empresa_nome ?? 'Mercury PDV',
+    cfgEmpresa?.empresa_cnpj ?? '',
+    cfgEmpresa?.empresa_telefone ?? '',
+    cfgEmpresa?.empresa_endereco ?? '',
+    linha,
+    `TESTE — ${nome || 'Impressora'}`,
+    `${ROTULO_CONEXAO[conexao] ?? conexao}${endereco ? ' · ' + endereco : ''} · Bobina ${largura}mm`,
+    `Emitido em ${new Date().toLocaleString('pt-BR')}`,
+    linha,
+    ...itens.map((i) => `${i.q}x ${i.nome}\n${String(i.total).padStart(larg)}`),
+    linha,
+    `TOTAL${'56,00'.padStart(larg - 5)}`,
+    linha,
+    `VIAS: ${vias || 1}`,
+    ...rod,
+    'Documento nao fiscal - teste de configuracao',
+  ].filter((l) => l !== '').join('\n');
+}
+
+async function telaImpressao(painel) {
+  const [dados, cfg] = await Promise.all([
+    get('/impressoras').catch(() => ({ impressoras: [] })),
+    get('/config').catch(() => ({})),
+  ]);
+  const impressoras = dados.impressoras ?? [];
+  const padraoId = cfg.impressora_padrao_id ?? '';
+
+  painel.innerHTML = `
+    <div class="cartao" style="margin-bottom:12px">
+      <strong>${ic('impressora')} Impressoras térmicas</strong>
+      <p style="margin:6px 0 0"><small style="color:var(--texto-fraco)">
+        Cadastre impressoras <strong>USB</strong>, <strong>Bluetooth</strong> ou <strong>Rede (IP)</strong> com bobina 58mm ou 80mm.
+        Personalize o cabeçalho e o rodapé e veja a pré-visualização em tempo real.
+        A impressão usa o diálogo do sistema operacional — instale a impressora no Windows e escolha-a ao imprimir.
+      </small></p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn primario" id="imp-nova">+ Nova impressora</button>
+      <label class="campo-inline" style="display:flex;gap:8px;align-items:center">
+        <span style="color:var(--texto-fraco)">Impressora padrão:</span>
+        <select id="imp-padrao" class="campo" style="width:auto;min-width:200px">
+          <option value="">— nenhuma (usa bobina do recibo) —</option>
+          ${impressoras.map((i) => `<option value="${i.id}" ${String(i.id) === String(padraoId) ? 'selected' : ''}>${escapar(i.nome)} (${ROTULO_CONEXAO[i.conexao] ?? i.conexao})</option>`).join('')}
+        </select>
+      </label>
+    </div>
+    <div id="imp-lista"></div>
+    <div class="cartao" style="margin-top:12px">
+      <h3 style="margin-top:0">${ic('documento')} Pré-visualização (impressora padrão)</h3>
+      <div id="imp-previa-padrao"></div>
+    </div>`;
+
+  const previaPadrao = () => {
+    const imp = impressoras.find((i) => String(i.id) === String(painel.querySelector('#imp-padrao')?.value)) ?? impressoras.find((i) => i.ativo);
+    const alvo = painel.querySelector('#imp-previa-padrao');
+    if (!alvo) return;
+    alvo.innerHTML = imp
+      ? `<pre class="recibo-preview impressao-previa" style="width:${imp.largura_mm === 58 ? '240px' : '340px'}">${escapar(previaImpressao(imp, cfg))}</pre>`
+      : '<div class="vazio">Cadastre uma impressora para ver a pré-visualização</div>';
+  };
+  previaPadrao();
+  painel.querySelector('#imp-padrao').onchange = async (e) => {
+    try {
+      await put('/config', { impressora_padrao_id: e.target.value });
+      toast('Impressora padrão salva', 'ok');
+      previaPadrao();
+    } catch (err) { toast(err.message, 'erro'); }
+  };
+
+  const redesenharLista = () => {
+    const lista = painel.querySelector('#imp-lista');
+    lista.innerHTML = `
+      <table class="dados"><thead><tr><th scope="col">Impressora</th><th scope="col">Conexão</th><th scope="col">Bobina</th><th scope="col">Vias</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
+      <tbody>${impressoras.map((i) => `<tr>
+        <td><strong>${escapar(i.nome)}</strong>${i.cabecalho ? `<br><small style="color:var(--texto-fraco)">cabecalho próprio</small>` : ''}${i.rodape ? `<br><small style="color:var(--texto-fraco)">rodapé próprio</small>` : ''}</td>
+        <td>${ROTULO_CONEXAO[i.conexao] ?? i.conexao}${i.endereco ? `<br><small style="color:var(--texto-fraco)">${escapar(i.endereco)}</small>` : ''}</td>
+        <td class="num">${i.largura_mm} mm</td>
+        <td class="num">${i.vias}</td>
+        <td>${i.ativo ? '<span class="badge ok">ativa</span>' : '<span class="badge alerta">inativa</span>'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn ghost" data-edit="${i.id}" title="Editar">${ic('lapis')}</button>
+          <button class="btn ghost" data-teste="${i.id}" title="Pré-visualizar / testar">${ic('documento')}</button>
+          <button class="btn ghost" data-del="${i.id}" title="Excluir">${ic('lixeira')}</button>
+        </td></tr>`).join('') || '<tr><td colspan="6" class="vazio">Nenhuma impressora cadastrada</td></tr>'}</tbody></table>`;
+    lista.querySelectorAll('[data-edit]').forEach((b) => {
+      b.onclick = () => formImpressora(impressoras.find((x) => x.id === Number(b.dataset.edit)));
+    });
+    lista.querySelectorAll('[data-teste]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          const r = await post(`/impressoras/${b.dataset.teste}/teste`, {});
+          const m = modal(`<h2>${ic('impressora')} Teste — ${escapar(r.impressora.nome)}</h2>
+            <pre class="recibo-preview" style="max-width:${r.impressora.largura_mm === 58 ? '240px' : '340px'};margin:0 auto">${escapar(r.previa)}</pre>
+            <div style="display:flex;gap:10px;margin-top:12px">
+              <button class="btn ghost" data-a="c">Fechar</button>
+              <button class="btn primario grande" data-a="imp" style="flex:1">Imprimir teste</button>
+            </div>`);
+          m.caixa.querySelector('[data-a="c"]').onclick = m.fechar;
+          m.caixa.querySelector('[data-a="imp"]').onclick = () => {
+            let area = document.getElementById('area-impressao');
+            if (!area) { area = document.createElement('div'); area.id = 'area-impressao'; document.body.appendChild(area); }
+            area.innerHTML = `<pre class="recibo-preview" style="background:#fff;color:#000;border:none;width:${r.impressora.largura_mm}mm">${escapar(r.previa)}</pre>`;
+            window.print();
+          };
+        } catch (e) { toast(e.message, 'erro'); }
+      };
+    });
+    lista.querySelectorAll('[data-del]').forEach((b) => {
+      b.onclick = async () => {
+        const alvo = impressoras.find((x) => x.id === Number(b.dataset.del));
+        if (!await confirmar('Excluir impressora?', `"${alvo.nome}" será removida do cadastro.`, { perigo: true })) return;
+        try { await del(`/impressoras/${b.dataset.del}`); toast('Impressora removida', 'ok'); telaImpressao(painel); }
+        catch (e) { toast(e.message, 'erro'); }
+      };
+    });
+  };
+  redesenharLista();
+  painel.querySelector('#imp-nova').onclick = () => formImpressora(null);
+
+  function formImpressora(imp) {
+    const m = modal(`<h2>${imp ? 'Editar' : 'Nova'} impressora térmica</h2>
+      <input id="i-nome" value="${escapar(imp?.nome ?? '')}" placeholder="Nome (ex: Balcão, Cozinha, Chapa)" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)"/>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <select id="i-conexao" style="flex:1;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)">
+          <option value="usb" ${imp?.conexao === 'usb' ? 'selected' : ''}>USB</option>
+          <option value="bluetooth" ${imp?.conexao === 'bluetooth' ? 'selected' : ''}>Bluetooth</option>
+          <option value="rede" ${imp?.conexao === 'rede' ? 'selected' : ''}>Rede (IP)</option>
+        </select>
+        <input id="i-endereco" value="${escapar(imp?.endereco ?? '')}" placeholder="192.168.0.50:9100" style="flex:1;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)"/>
+      </div>
+      <small style="color:var(--texto-fraco);display:block;margin-top:6px" id="i-dica-endereco"></small>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <span style="color:var(--texto-fraco)">Bobina:</span>
+        <div class="abas" role="radiogroup" aria-label="Largura da bobina">
+          <button type="button" class="btn ${(!imp || imp.largura_mm === 80) ? 'ativa' : ''}" role="radio" aria-checked="${!imp || imp.largura_mm === 80}" data-larg="80">80 mm</button>
+          <button type="button" class="btn ${imp?.largura_mm === 58 ? 'ativa' : ''}" role="radio" aria-checked="${imp?.largura_mm === 58}" data-larg="58">58 mm</button>
+        </div>
+        <span style="color:var(--texto-fraco);margin-left:8px">Vias:</span>
+        <select id="i-vias" style="width:auto;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)">
+          <option value="1" ${(!imp || imp.vias === 1) ? 'selected' : ''}>1 via</option>
+          <option value="2" ${imp?.vias === 2 ? 'selected' : ''}>2 vias</option>
+        </select>
+      </div>
+      <label style="display:block;margin-top:10px"><input type="checkbox" id="i-ativo" ${!imp || imp.ativo ? 'checked' : ''} /> Ativa</label>
+      <label style="display:block;margin-top:10px"><span class="campo-titulo">Cabeçalho personalizado (uma linha por vez, vazio = dados da empresa)</span>
+        <textarea id="i-cabecalho" rows="3" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto);font-family:var(--mono)" placeholder="Ex:&#10;LANCHONETE DO ZÉ&#10;Promoção de terça!">${escapar(imp?.cabecalho ?? '')}</textarea></label>
+      <label style="display:block;margin-top:8px"><span class="campo-titulo">Rodapé personalizado (uma linha por vez)</span>
+        <textarea id="i-rodape" rows="3" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto);font-family:var(--mono)" placeholder="Ex:&#10;Siga @lanchonetedoze&#10;Volte sempre!">${escapar(imp?.rodape ?? '')}</textarea></label>
+      <h3 style="margin:14px 0 4px">${ic('documento')} Pré-visualização em tempo real</h3>
+      <div id="i-previa"></div>
+      <button class="btn primario grande" style="width:100%;margin-top:10px" data-a="ok">${imp ? 'Salvar' : 'Criar'} impressora</button>`);
+
+    let largura = imp?.largura_mm ?? 80;
+    const dicas = {
+      usb: 'USB: nome da impressora como instalada no Windows (ex: "POS-58 Thermal"). Deixe vazio para usar a padrão do sistema.',
+      bluetooth: 'Bluetooth: MAC do dispositivo (ex: 00:11:22:33:44:55) ou nome emparelhado (ex: "POS-80BT").',
+      rede: 'Rede: IP ou host da impressora, opcionalmente com porta (padrão térmico: 9100). Ex: 192.168.0.50:9100',
+    };
+    const placeholders = { usb: 'POS-58 Thermal', bluetooth: '00:11:22:33:44:55', rede: '192.168.0.50:9100' };
+    const campo = (id) => m.caixa.querySelector('#' + id);
+
+    const atualizarPrevia = () => {
+      const dados = {
+        nome: campo('i-nome').value.trim(),
+        conexao: campo('i-conexao').value,
+        endereco: campo('i-endereco').value.trim(),
+        largura,
+        cabecalho: campo('i-cabecalho').value,
+        rodape: campo('i-rodape').value,
+        vias: Number(campo('i-vias').value),
+      };
+      campo('i-previa').innerHTML = `<pre class="recibo-preview impressao-previa" style="margin:0 auto;width:${largura === 58 ? '240px' : '340px'}">${escapar(previaImpressao(dados, cfg))}</pre>`;
+    };
+    const atualizarDica = () => {
+      campo('i-dica-endereco').textContent = dicas[campo('i-conexao').value];
+      campo('i-endereco').placeholder = placeholders[campo('i-conexao').value];
+    };
+    m.caixa.querySelectorAll('[data-larg]').forEach((b) => {
+      b.onclick = () => {
+        largura = Number(b.dataset.larg);
+        m.caixa.querySelectorAll('[data-larg]').forEach((x) => { x.classList.remove('ativa'); x.setAttribute('aria-checked', 'false'); });
+        b.classList.add('ativa'); b.setAttribute('aria-checked', 'true');
+        atualizarPrevia();
+      };
+    });
+    ['i-nome', 'i-endereco', 'i-cabecalho', 'i-rodape'].forEach((id) => { campo(id).addEventListener('input', atualizarPrevia); });
+    campo('i-conexao').addEventListener('change', () => { atualizarDica(); atualizarPrevia(); });
+    campo('i-vias').addEventListener('change', atualizarPrevia);
+    atualizarDica();
+    atualizarPrevia();
+
+    m.caixa.querySelector('[data-a="ok"]').onclick = async () => {
+      try {
+        const corpo = {
+          nome: campo('i-nome').value.trim(),
+          conexao: campo('i-conexao').value,
+          endereco: campo('i-endereco').value.trim() || null,
+          largura_mm: largura,
+          vias: Number(campo('i-vias').value),
+          cabecalho: campo('i-cabecalho').value.trim() || null,
+          rodape: campo('i-rodape').value.trim() || null,
+          ativo: campo('i-ativo').checked ? 1 : 0,
+        };
+        if (imp) await put(`/impressoras/${imp.id}`, corpo); else await post('/impressoras', corpo);
+        m.fechar(); toast(imp ? 'Impressora atualizada' : 'Impressora criada', 'ok'); telaImpressao(painel);
+      } catch (e) { toast(e.message, 'erro'); }
+    };
+  }
+}
+
+// ============================================================
+// 1.3.1 — SESSÕES ATIVAS (controle de usuários logados)
+// Quem está logado via Web, celular ou APK, de qual IP, última atividade,
+// com desconexão imediata (revoga a sessão e derruba o WebSocket).
+// ============================================================
+async function telaSessoes(painel) {
+  const rotuloCargo = { admin: 'Administrador', caixa: 'Caixa', garcom: 'Garçom', cozinha: 'Cozinha' };
+  const iconeOrigem = { 'APK Mobile': 'celular', 'Celular (navegador)': 'celular', 'Web (computador)': 'prancheta', 'Desconhecido': 'lupa' };
+  let dados;
+  try { dados = await get('/sessoes'); }
+  catch (e) { painel.innerHTML = `<div class="vazio">Erro: ${escapar(e.message)}</div>`; return; }
+  const sessoes = dados.sessoes ?? [];
+
+  painel.innerHTML = `
+    <div class="cartao" style="margin-bottom:12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <strong>${ic('antena')} Usuários logados agora: ${sessoes.length}</strong>
+      <span class="badge ok">${ic('sincronizar')} ${dados.online_agora ?? 0} dispositivo(s) sincronizado(s) em tempo real</span>
+      <button class="btn ghost" id="ses-atualizar">${ic('atualizar')} Atualizar</button>
+    </div>
+    <table class="dados"><thead><tr><th scope="col">Usuário</th><th scope="col">Origem</th><th scope="col">IP</th><th scope="col">Última atividade</th><th scope="col">Expira em</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
+    <tbody>${sessoes.map((s) => `<tr>
+      <td><strong>${escapar(s.nome)}</strong> <small style="color:var(--texto-fraco)">${rotuloCargo[s.cargo] ?? s.cargo}</small>${s.atual ? ' <span class="badge ok">você</span>' : ''}</td>
+      <td>${ic(iconeOrigem[s.origem] ?? 'lupa')} ${escapar(s.origem)}</td>
+      <td><small>${escapar(s.ip ?? '—')}</small></td>
+      <td><small>${new Date(s.ultimo_uso).toLocaleString('pt-BR')}</small></td>
+      <td><small>${new Date(s.expira_em).toLocaleString('pt-BR')}</small></td>
+      <td>${s.online ? '<span class="badge ok">online agora</span>' : '<span class="badge">conectado</span>'}</td>
+      <td>${s.atual ? '' : `<button class="btn ghost perigo" data-desconectar="${escapar(s.id)}" title="Desconectar sessão">${ic('x')} Desconectar</button>`}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="vazio">Nenhuma sessão ativa</td></tr>'}</tbody></table>
+    <p><small style="color:var(--texto-fraco)">Sessões expiram sozinhas após 12 h ou 30 min sem uso. Desconectar encerra a sessão na hora, inclusive o WebSocket do dispositivo.</small></p>`;
+
+  painel.querySelector('#ses-atualizar').onclick = () => telaSessoes(painel);
+  painel.querySelectorAll('[data-desconectar]').forEach((b) => {
+    b.onclick = async () => {
+      const linha = sessoes.find((s) => s.id === b.dataset.desconectar);
+      if (!await confirmar('Desconectar usuário?', `"${linha.nome}" será deslogado imediatamente deste dispositivo.`)) return;
+      try {
+        await post(`/sessoes/${b.dataset.desconectar}/desconectar`, {});
+        toast(`${linha.nome} desconectado`, 'ok'); telaSessoes(painel);
+      } catch (e) { toast(e.message, 'erro'); }
+    };
   });
 }

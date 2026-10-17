@@ -1,6 +1,7 @@
 import { erro } from '../core/errors.js';
 import { dataISO, texto } from '../core/validate.js';
 import { registrar } from '../core/audit.js';
+import { gerarCSV, centavosParaCsv } from '../core/csv.js';
 
 // Metodologia (documentada no manual e em docs/):
 // - Bruto = soma dos itens ATIVOS (preço + adicionais × qtd) dos pedidos FECHADOS no período.
@@ -108,6 +109,76 @@ export function vendasDoPeriodo(db, deStr, ateStr, limite = 300) {
      WHERE p.status = 'fechado' AND p.fechado_em BETWEEN ? AND ?
      ORDER BY p.fechado_em DESC LIMIT ?`
   ).all(de.toISOString(), new Date(ate.getTime() + 24 * 3600_000 - 1).toISOString(), limite);
+}
+
+// ---------- Exportação CSV (1.3.1) ----------
+// Relatório de vendas detalhado: cada pedido fechado com formas de pagamento.
+
+export function vendasCSV(db, deStr, ateStr) {
+  const de = dataISO(deStr, 'de');
+  const ate = dataISO(ateStr, 'ate');
+  if (de > ate) throw erro.validacao('"de" deve ser anterior a "ate".');
+  const deISO = de.toISOString();
+  const ateISO = new Date(ate.getTime() + 24 * 3600_000 - 1).toISOString();
+
+  const pedidos = db.prepare(
+    `SELECT p.id, p.tipo, p.total_fechado_centavos, p.desconto_centavos, p.aberto_em, p.fechado_em,
+            COALESCE(u.nome, '') AS fechado_por_nome, m.numero AS mesa_numero, p.comanda_nome
+     FROM pedidos p
+     LEFT JOIN usuarios u ON u.id = p.fechado_por
+     LEFT JOIN mesas m ON m.id = p.mesa_id
+     WHERE p.status = 'fechado' AND p.fechado_em BETWEEN ? AND ?
+     ORDER BY p.fechado_em ASC`
+  ).all(deISO, ateISO);
+
+  const linhas = pedidos.map((p) => {
+    const formas = db.prepare(
+      `SELECT forma, valor_centavos FROM pagamentos WHERE pedido_id = ? AND estornado = 0 ORDER BY id`
+    ).all(p.id).map((pg) => `${pg.forma}=${centavosParaCsv(pg.valor_centavos)}`).join(', ');
+    return [
+      p.id,
+      p.tipo === 'mesa' ? `Mesa ${p.mesa_numero ?? '-'}` : 'Balcão',
+      p.comanda_nome ?? '',
+      p.fechado_por_nome,
+      new Date(p.aberto_em).toLocaleString('pt-BR'),
+      new Date(p.fechado_em).toLocaleString('pt-BR'),
+      centavosParaCsv(p.desconto_centavos),
+      centavosParaCsv(p.total_fechado_centavos),
+      formas || '—',
+    ];
+  });
+
+  return gerarCSV(
+    ['Pedido', 'Origem', 'Comanda', 'Fechado por', 'Aberto em', 'Fechado em', 'Desconto (R$)', 'Total (R$)', 'Pagamentos'],
+    linhas,
+  );
+}
+
+// Resumo gerencial: faturamento, ticket médio, pedidos e formas de pagamento.
+
+export function resumoCSV(db, deStr, ateStr) {
+  const r = resumo(db, deStr, ateStr);
+  const rotuloForma = {
+    dinheiro: 'Dinheiro', pix: 'PIX', cartao_debito: 'Cartão Débito',
+    cartao_credito: 'Cartão Crédito', vale_refeicao: 'Vale Refeição',
+  };
+  const linhas = [
+    ['Período de', `${deStr} a ${ateStr}`],
+    ['Pedidos fechados', String(r.pedidos_fechados)],
+    ['Faturamento bruto (R$)', centavosParaCsv(r.bruto_centavos)],
+    ['Descontos (R$)', centavosParaCsv(-r.descontos_centavos)],
+    ['Cancelamentos — fora do bruto (R$)', centavosParaCsv(r.cancelamentos_centavos)],
+    ['Faturamento líquido (R$)', centavosParaCsv(r.liquido_centavos)],
+    ['Ticket médio (R$)', centavosParaCsv(r.ticket_medio_centavos)],
+    ['Margem estimada (R$)', centavosParaCsv(r.margem_estimada_centavos)],
+    ['', ''],
+    ['Forma de pagamento', 'Recebido (R$)'],
+    ...Object.entries(r.por_forma).map(([forma, valor]) => [rotuloForma[forma] ?? forma, centavosParaCsv(valor)]),
+    ['', ''],
+    ['Produto (top 15)', 'Quantidade', 'Valor (R$)'],
+    ...r.top_produtos.map((p) => [p.nome, String(p.quantidade), centavosParaCsv(p.valor_centavos)]),
+  ];
+  return gerarCSV(['Indicador', 'Valor'], linhas);
 }
 
 

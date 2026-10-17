@@ -2,11 +2,12 @@
 import { ic } from './icons.js';
 import { api, get, post, aoPerderSessao } from './api.js';
 import { toast, escapar, modal } from './ui.js';
-import { conectarWS, desconectarWS, aoEstado } from './ws.js';
+import { conectarWS, desconectarWS, aoEstado, aoEvento } from './ws.js';
 import { drenarFilaKds } from './offdb.js';
 import { post as postFila } from './offline-bridge.js';
 import { initA11y, anunciar, definirTamanhoFonte } from './a11y.js';
 import { carregarPreferenciasTema, aplicarTema, usarTemaGlobal, aplicarPadroesServidor } from './theme.js';
+import { tocarPronto } from './sound.js';
 import * as vLogin from './views/login.js';
 import * as vPdv from './views/pdv.js';
 import * as vMesas from './views/mesas.js';
@@ -20,6 +21,8 @@ export const estado = {
   usuario: null,
   permissoes: {},
   configPublica: {},
+  notificacoes: { nao_lidas: 0, itens: [] },
+  dispositivos: 0,
 };
 
 const app = document.getElementById('app');
@@ -31,8 +34,110 @@ aoEstado((online) => {
     el.textContent = online ? '● Online' : '● Sem conexão';
     el.className = `estado-conexao ${online ? 'on' : 'off'}`;
   }
-  if (online && estado.usuario) drenarFilaKds(async (item) => postFila(`/pedidos/${item.pedido_id}/kds-avancar`, {}));
+  if (online && estado.usuario) {
+    drenarFilaKds(async (item) => postFila(`/pedidos/${item.pedido_id}/kds-avancar`, {}));
+    atualizarSyncDispositivos();
+  }
 });
+
+// 1.3.1 — eventos em tempo real do sino e da sincronização de dispositivos
+aoEvento((ev) => {
+  if (ev.tipo === 'notificacao.nova') {
+    carregarNotificacoes(); // busca contagem e lista reais do servidor
+    tocarPronto();
+    toast(ev.payload?.titulo ?? 'Pedido pronto', 'ok');
+    try { anunciar(ev.payload?.titulo ?? 'Pedido pronto'); } catch { /* a11y ausente */ }
+  }
+  if (ev.tipo === 'presenca') {
+    estado.dispositivos = Number(ev.total ?? 0);
+    atualizarIndicadorSync();
+  }
+});
+
+// ---------- Notificações (sino) & sincronização (1.3.1) ----------
+export async function carregarNotificacoes() {
+  try {
+    const r = await get('/notificacoes');
+    estado.notificacoes = { nao_lidas: r.nao_lidas, itens: r.itens };
+  } catch { /* offline: mantém o que já foi carregado */ }
+  renderSino();
+}
+
+function podeVerSino() {
+  return !!(estado.permissoes.pode_lancar_comanda || estado.permissoes.pode_dividir_pagar);
+}
+
+function renderSino() {
+  const badge = document.getElementById('sino-contagem');
+  const painel = document.getElementById('sino-painel');
+  if (!badge) return;
+  const n = estado.notificacoes.nao_lidas ?? 0;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.hidden = n === 0;
+  badge.setAttribute('aria-label', `${n} notificação(ões) não lida(s)`);
+  if (painel && !painel.hidden) renderPainelSino();
+}
+
+function renderPainelSino() {
+  const painel = document.getElementById('sino-painel');
+  if (!painel) return;
+  const itens = estado.notificacoes.itens ?? [];
+  const atras = (iso) => {
+    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60) return 'agora';
+    if (s < 3600) return `${Math.floor(s / 60)} min atrás`;
+    if (s < 86400) return `${Math.floor(s / 3600)} h atrás`;
+    return new Date(iso).toLocaleString('pt-BR');
+  };
+  painel.innerHTML = `
+    <div class="sino-cabecalho">
+      <strong>${ic('sino')} Notificações</strong>
+      ${estado.notificacoes.nao_lidas ? `<span class="badge alerta">${estado.notificacoes.nao_lidas} não lida(s)</span>` : ''}
+    </div>
+    <div class="sino-lista" role="list">
+      ${itens.length ? itens.map((n) => `
+        <div class="sino-item ${n.lida ? 'lida' : 'nova'}" role="listitem">
+          <strong>${escapar(n.titulo)}</strong>
+          ${n.detalhes ? `<small>${escapar(n.detalhes)}</small>` : ''}
+          <small class="sino-quando">${atras(n.criado_em)}</small>
+        </div>`).join('') : '<div class="vazio" style="padding:14px">Nenhuma notificação</div>'}
+    </div>
+    <div class="sino-acoes">
+      <button class="btn ghost" data-a="ler">Marcar lidas</button>
+      <button class="btn ghost perigo" data-a="limpar">Limpar tudo</button>
+    </div>`;
+  painel.querySelector('[data-a="ler"]').onclick = async () => {
+    try { const r = await post('/notificacoes/ler-todas', {}); estado.notificacoes = { nao_lidas: r.nao_lidas, itens: r.itens }; renderSino(); }
+    catch (e) { toast(e.message, 'erro'); }
+  };
+  painel.querySelector('[data-a="limpar"]').onclick = async () => {
+    try { const r = await post('/notificacoes/limpar', {}); estado.notificacoes = { nao_lidas: 0, itens: [] }; renderSino(); toast('Notificações limpas', 'ok'); }
+    catch (e) { toast(e.message, 'erro'); }
+  };
+}
+
+function alternarSino() {
+  const painel = document.getElementById('sino-painel');
+  if (!painel) return;
+  painel.hidden = !painel.hidden;
+  if (!painel.hidden) { renderPainelSino(); painel.querySelector('.sino-lista')?.focus(); }
+}
+
+async function atualizarSyncDispositivos() {
+  try {
+    const r = await get('/dispositivos');
+    estado.dispositivos = r.total ?? 0;
+  } catch { /* offline */ }
+  atualizarIndicadorSync();
+}
+
+function atualizarIndicadorSync() {
+  const el = document.getElementById('sync-dispositivos');
+  if (!el) return;
+  const n = estado.dispositivos ?? 0;
+  el.textContent = n === 1 ? '⟳ 1 dispositivo' : `⟳ ${n} dispositivos`;
+  el.title = 'Dispositivos sincronizados em tempo real (PDV, garçons e celular)';
+}
 
 const ROTAS = [
   { id: 'pdv', icone: 'recibo', rotulo: 'PDV Balcão', perm: 'pode_vender_balcao', view: vPdv },
@@ -93,7 +198,15 @@ function renderTopo() {
       <span class="marca">${logo} ${escapar(estado.configPublica?.empresa_nome ?? 'Mercury PDV')}</span>
       <span class="operador">${escapar(estado.usuario.nome)} · ${rotuloCargo(estado.usuario.cargo)}</span>
       <span id="estado-conexao" class="estado-conexao on">● Online</span>
+      <span id="sync-dispositivos" class="sync-dispositivos" title="Dispositivos sincronizados em tempo real">⟳ —</span>
       <span class="spacer"></span>
+      ${podeVerSino() ? `
+      <div class="sino">
+        <button class="btn ghost sino-botao" id="btn-sino" title="Notificações (pedidos prontos)" aria-label="Notificações" aria-expanded="false" aria-controls="sino-painel">
+          ${ic('sino')}<span class="sino-badge" id="sino-contagem" hidden>0</span>
+        </button>
+        <div class="sino-painel" id="sino-painel" hidden tabindex="-1"></div>
+      </div>` : ''}
       <button class="btn ghost nav-toggle" id="btn-menu" title="Menu" aria-label="Abrir menu" aria-expanded="false" aria-controls="nav-principal">
         <span aria-hidden="true">${ic('menu')}</span>
       </button>
@@ -139,6 +252,23 @@ function definirMenu(aberto) {
   if (scrim) scrim.hidden = !aberto;
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') definirMenu(false); });
+// Sino: fecha ao clicar fora ou ao pressionar Esc (handlers globais, 1.3.1)
+document.addEventListener('click', (e) => {
+  const painel = document.getElementById('sino-painel');
+  if (!painel || painel.hidden) return;
+  if (!painel.contains(e.target) && !e.target.closest?.('#btn-sino')) {
+    painel.hidden = true;
+    document.getElementById('btn-sino')?.setAttribute('aria-expanded', 'false');
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const painel = document.getElementById('sino-painel');
+  if (painel && !painel.hidden) {
+    painel.hidden = true;
+    document.getElementById('btn-sino')?.setAttribute('aria-expanded', 'false');
+  }
+});
 
 function render() {
   if (!estado.usuario) return;
@@ -154,6 +284,16 @@ function render() {
   app.querySelectorAll('.nav-flutuante .nav-item').forEach((b) => b.addEventListener('click', () => definirMenu(false)));
   app.querySelector('#btn-sair').onclick = sair;
   app.querySelector('#btn-bloquear').onclick = sair; // bloqueio = trocar operador
+  const btnSino = app.querySelector('#btn-sino');
+  if (btnSino) {
+    btnSino.onclick = (ev) => {
+      ev.stopPropagation();
+      const painel = app.querySelector('#sino-painel');
+      const aberto = !painel.hidden;
+      alternarSino();
+      btnSino.setAttribute('aria-expanded', String(!aberto));
+    };
+  }
   app.querySelector('#btn-nav').onclick = () => {
     const atual = prefsNav();
     const rotasVisiveisModal = ROTAS.filter(temAcesso);
@@ -193,6 +333,9 @@ function render() {
     };
   };
   rota.view.render(app.querySelector('#conteudo'), rota.sub, estado, navegar);
+  // 1.3.1 — restaura sino e contagem de dispositivos após re-render do topo
+  renderSino();
+  atualizarIndicadorSync();
 }
 
 async function sair() {
@@ -226,6 +369,9 @@ async function bootComSessao() {
       usarTemaGlobal();
     }
     render();
+    // 1.3.1 — sino de pedidos prontos + contagem de dispositivos sincronizados
+    carregarNotificacoes();
+    atualizarSyncDispositivos();
     drenarFilaKds(async (item) => postFila(`/pedidos/${item.pedido_id}/kds-avancar`, {}));
   } catch {
     renderLogin();
@@ -255,6 +401,8 @@ function renderLogin(mensagem) {
       usarTemaGlobal();
     }
     render();
+    carregarNotificacoes();
+    atualizarSyncDispositivos();
     toast(`Bem-vindo, ${sessao.usuario.nome}!`, 'ok');
   });
 }

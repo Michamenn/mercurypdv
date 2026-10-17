@@ -1,4 +1,4 @@
-# Mercury PDV 1.3 — Agent Instructions
+# Mercury PDV 1.3.1 — Agent Instructions
 
 ## Quick Start
 
@@ -10,7 +10,7 @@
 # Stop server
 .\scripts\parar_sistema.bat
 
-# Run all tests (183 tests)
+# Run all tests (195 tests)
 npm test
 
 # Single test file
@@ -48,6 +48,7 @@ node_modules/    → Dependencies (already installed, no npm install needed)
 | `server/src/auth/rbac.js` | Permission middleware — checks DB `permissoes` table per request |
 | `server/src/tools/backup.js` | VACUUM INTO + integrity_check + retention |
 | `deploy/` | VPS deployment kit (Dockerfile, compose, Caddy, scripts) — see `docs/12-deploy-vps-windows.md` |
+| `deploy/aws/` | AWS deployment kit (EC2/ECS Fargate/Beanstalk) — see `DEPLOY_AWS.md` na raiz |
 
 ## Developer Commands
 
@@ -91,6 +92,9 @@ node --test tests/02-pdv.test.js tests/13-pdv-fechamento.test.js tests/14-caixa-
 
 # Stock (A2)
 node --test tests/08-estoque-a2.test.js
+
+# 1.3.1: impressoras, sessões, CSV + sino/KDS inteligente
+node --test tests/26-impressao-sessoes.test.js tests/27-notificacoes-kds.test.js
 ```
 
 ## Critical Conventions (Non-Obvious)
@@ -141,9 +145,22 @@ Required for: caixa sangria/suprimento, cancel item sent to kitchen, payment est
 - Restore **blocks** overwriting running DB — must stop server first
 
 ### 10. WebSocket Protocol
-- Auth: `{ type: "auth", token: "<session-token>" }`
+- Auth: `{ type: "auth", token: "<session-token>", dispositivo: "pdv-web|celular-web|apk-mobile" }`
 - Server replies snapshot + global `seq`
 - Events carry monotonic `seq`; client discards `seq <= last_seen`, refetches on gap
+- Presence events (`{ type: "presenca", total }`) are broadcast WITHOUT persisting (1.3.1)
+
+### 11. 1.3.1 Feature Surfaces
+| Feature | Where |
+|---|---|
+| Impressoras térmicas (USB/BT/Rede, 58/80mm, cabeçalho/rodapé, prévia) | `services/impressorasService.js` → rotas `/impressoras`, aba Admin → Sistema → Impressão |
+| Notificações (sino de pedidos prontos, não lidas, limpeza) | `services/notificacoesService.js`, criadas em `avancarKds` quando `para === 'pronto'` |
+| KDS inteligente (tempo estimado por produto) | `produtos.tempo_preparo_min` → `filaKds.tempo_estimado_min` (maior tempo dos itens) |
+| Sessões ativas + desconexão | rotas `/sessoes`, `/sessoes/:id/desconectar` (revoga + derruba WS via `hub.encerrarSessao`) |
+| Dispositivos conectados | `hub.clientes()` → `/dispositivos` (total p/ todos; detalhe p/ `pode_gerenciar_usuarios`) |
+| CSV (Excel pt-BR: BOM + `;`) | `core/csv.js` → `/relatorios/vendas.csv`, `/relatorios/resumo.csv` |
+| Endereço online (AWS) | config `url_publica` / env `LP_URL_PUBLICA` → QR Code em Configurações → Celular |
+| Deploy AWS | `DEPLOY_AWS.md` + `deploy/aws/` (EC2 compose, ECS Fargate, Beanstalk) |
 
 ## Environment (.env)
 
@@ -159,6 +176,7 @@ LP_SESSAO_INATIVIDADE_MIN=30
 LP_BACKUP_INTERVALO_HORAS=6
 LP_BACKUP_RETENCAO=30
 LP_AMBIENTE=producao
+LP_URL_PUBLICA=   # 1.3.1 — endereço online (AWS/domínio). Vazio = só rede local
 ```
 
 > **Never commit `.env`**. Pepper protects password hashes. If leaked, rotate all passwords.
@@ -184,7 +202,9 @@ LP_AMBIENTE=producao
 - `docs/12-deploy-vps-windows.md` — VPS hosting (Windows Server + WSL2 + Docker Compose)
 - `docs/13-checklist-pos-instalacao-vps.md` — VPS go-live smoke test (infra + negócio)
 - `docs/14-manual-instalacao-vps.md` — Manual passo a passo explicativo da instalação na VPS
-- `docs/15-github-e-testes-online.md` — Subir no GitHub, CI dos 183 testes e Codespaces
+- `docs/15-github-e-testes-online.md` — Subir no GitHub, CI dos testes e Codespaces
+- `docs/16-versao-1.3.1.md` — Notas da versão 1.3.1 (impressão, KDS inteligente, sino, CSV, sessões, AWS)
+- `DEPLOY_AWS.md` — Guia completo de implantação na AWS (EC2, ECS Fargate, Elastic Beanstalk)
 
 ## Permission Flags (from `permissoes` table)
 

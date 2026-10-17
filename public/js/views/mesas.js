@@ -69,7 +69,7 @@ async function atualizar(conteudo, estadoApp) {
       ${podeGerenciar ? `<button class="btn ghost" id="btn-layout" aria-pressed="${modoLayout}">${ic('marmita')} ${modoLayout ? 'Concluir layout' : 'Editar layout'}</button>` : ''}
       ${podeGerenciar ? `<button class="btn ghost ${juntarAtivo ? 'ok' : ''}" id="btn-juntar">${ic('pessoas')} ${juntarAtivo ? 'Cancelar junção' : 'Juntar mesas'}</button>` : ''}
       ${podeGerenciar ? `<button class="btn ghost" id="btn-transferir">${ic('troca')} Transferir</button>` : ''}
-      ${podeLancar ? '<button class="btn primario" id="btn-nova-mesa">+ Nova mesa</button>' : ''}
+      ${podeGerenciar ? '<button class="btn primario" id="btn-nova-mesa">+ Nova mesa</button>' : ''}
     </div>
 
     <div class="mapa-legenda">
@@ -420,23 +420,32 @@ function modalJuntar(conteudo, mesas, ids) {
 
 function modalNovaMesa(conteudo, estadoApp) {
   const m = modal(`<h2>Nova mesa</h2>
-    <label style="display:block"><small style="color:var(--texto-fraco)">Número</small>
-      <input id="numero" type="number" min="1" placeholder="Número" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" /></label>
+    <label style="display:block"><small style="color:var(--texto-fraco)">Quantidade (cria várias de uma vez)</small>
+      <input id="quantidade" type="number" min="1" max="50" value="1" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" /></label>
+    <label style="display:block;margin-top:8px"><small style="color:var(--texto-fraco)">Número inicial (vazio = continua do último)</small>
+      <input id="numero" type="number" min="1" placeholder="Ex: 1, 10, 25…" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" /></label>
     <label style="display:block;margin-top:8px"><small style="color:var(--texto-fraco)">Setor</small>
       <input id="setor" placeholder="salao, varanda…" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" /></label>
-    <label style="display:block;margin-top:8px"><small style="color:var(--texto-fraco)">Assentos</small>
+    <label style="display:block;margin-top:8px"><small style="color:var(--texto-fraco)">Assentos por mesa</small>
       <input id="assentos" type="number" min="1" max="40" value="4" style="width:100%;padding:12px;background:var(--canvas);border-radius:10px;border:1px solid var(--borda);color:var(--texto)" /></label>
+    <p><small style="color:var(--texto-fraco)">${ic('mesa')} As mesas são criadas <strong>lado a lado</strong> no mapa do salão, em fileiras, sem ficar umas sobre as outras. Depois arraste pelo "Editar layout" se quiser.</small></p>
     <div style="display:flex;gap:10px;margin-top:12px"><button class="btn ghost" data-a="c">Cancelar</button><button class="btn primario" data-a="ok" style="flex:1">Criar</button></div>`);
   m.caixa.querySelector('[data-a="c"]').onclick = m.fechar;
   m.caixa.querySelector('[data-a="ok"]').onclick = async () => {
     try {
-      await post('/mesas', {
-        numero: Number(m.caixa.querySelector('#numero').value),
+      const qtd = Math.max(1, Math.min(50, Number(m.caixa.querySelector('#quantidade').value) || 1));
+      const numeroTxt = m.caixa.querySelector('#numero').value.trim();
+      const r = await post('/mesas', {
+        quantidade: qtd,
+        numero: numeroTxt === '' ? undefined : Number(numeroTxt),
         setor: m.caixa.querySelector('#setor').value.trim() || 'salao',
         assentos: Number(m.caixa.querySelector('#assentos').value) || 4,
       });
       m.fechar();
-      toast('Mesa criada', 'ok');
+      const numeros = (r?.mesas ?? []).map((x) => x.numero);
+      toast(r?.criadas > 1
+        ? `${r.criadas} mesas criadas (nº ${numeros[0]}–${numeros[numeros.length - 1]}), lado a lado no mapa`
+        : 'Mesa criada', 'ok');
       atualizar(conteudo, estadoApp);
     } catch (e) { toast(e.message, 'erro'); }
   };

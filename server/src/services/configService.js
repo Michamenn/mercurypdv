@@ -41,6 +41,9 @@ export const CHAVES_PADRAO = {
   comissao_pct: '0',
   layout_salao_largura: '1200',
   layout_salao_altura: '800',
+  // 1.3.1 — impressão térmica e conexão online (AWS)
+  url_publica: '',
+  impressora_padrao_id: '',
 };
 
 export function validarValorConfig(chave, valor) {
@@ -77,6 +80,13 @@ const CORES_VALIDAS = new Set(['cor_acao', 'cor_ok', 'cor_alerta', 'cor_amarelo'
   }
   if (chave === 'taxa_servico_cobrar_por' && !['subtotal', 'bruto'].includes(valor)) {
     throw new Error('Base da taxa de serviço deve ser: subtotal ou bruto.');
+  }
+  // 1.3.1 — endereço público (AWS/EC2/ALB ou domínio próprio) e impressora padrão
+  if (chave === 'url_publica' && valor !== '' && !/^https?:\/\/[a-zA-Z0-9.-]+(:\d{1,5})?(\/[^\s]*)?$/.test(valor)) {
+    throw new Error('Endereço público inválido. Use http:// ou https:// com domínio ou IP (ex: https://pdv.minhalanchonete.com.br).');
+  }
+  if (chave === 'impressora_padrao_id' && valor !== '' && !/^\d+$/.test(valor)) {
+    throw new Error('Impressora padrão deve ser o ID numérico de uma impressora cadastrada.');
   }
   // Campos numéricos com faixa — evita config que derruba o caixa.
   const NUMERICOS = {

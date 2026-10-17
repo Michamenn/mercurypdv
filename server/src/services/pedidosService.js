@@ -8,6 +8,7 @@ import { sincronizarPrecosVigentes, disponibilidadeProduto } from './catalogoSer
 import { disponibilidadeVenda } from './estoqueService.js';
 import { promocaoVigente } from './promocoesService.js';
 import { obterTodas } from './configService.js';
+import * as notificacoes from './notificacoesService.js';
 
 export const FORMAS = ['dinheiro', 'pix', 'cartao_debito', 'cartao_credito', 'vale_refeicao'];
 const KDS_ORDEM = { pendente: 0, preparando: 1, pronto: 2, entregue: 3 };
@@ -674,6 +675,19 @@ export function avancarKds(db, usuario, pedidoId, ip, hub) {
     registrar(db, { usuarioId: usuario.id, acao: 'kds_avanco', entidade: 'pedido', entidadeId: pedidoId, detalhes: { de: atual, para: proximo }, ip });
   });
   hub?.publicar('kds.status', { pedido_id: pedidoId, de: atual, para: proximo, em: agora });
+  // 1.3.1 — sino de pedidos prontos: garçons e atendentes são avisados em tempo real.
+  if (proximo === 'pronto') {
+    const mesa = pedido.mesa_id ? db.prepare('SELECT numero FROM mesas WHERE id = ?').get(pedido.mesa_id)?.numero ?? null : null;
+    const origem = mesa ? `Mesa ${mesa}` : 'Balcão';
+    const n = notificacoes.criar(db, {
+      tipo: 'pedido_pronto',
+      titulo: `Pedido #${pedidoId} pronto`,
+      detalhes: `${origem} · ${itens.length} item(ns) prontos na cozinha`,
+      pedidoId,
+      mesaNumero: mesa,
+    });
+    hub?.publicar('notificacao.nova', n);
+  }
   return { pedido_id: pedidoId, kds_status: proximo };
 }
 
@@ -691,14 +705,19 @@ export function filaKds(db) {
   for (const p of pedidos) {
     p.itens = db.prepare(
       `SELECT i.id, i.nome_produto, i.quantidade, i.observacoes, i.kds_status, i.enviado_cozinha_em,
+              COALESCE(pr.tempo_preparo_min, 10) AS tempo_preparo_min,
               COALESCE((SELECT GROUP_CONCAT(a.nome || ' (x' || a.quantidade || ')', ', ')
                         FROM pedido_item_adicionais a WHERE a.item_id = i.id), '') AS adicionais
-       FROM pedido_itens i WHERE i.pedido_id = ? AND i.status = 'ativo' AND i.enviado_cozinha_em IS NOT NULL
+       FROM pedido_itens i JOIN produtos pr ON pr.id = i.produto_id
+       WHERE i.pedido_id = ? AND i.status = 'ativo' AND i.enviado_cozinha_em IS NOT NULL
        ORDER BY i.id`
     ).all(p.id);
     p.kds_status = p.itens.every((i) => i.kds_status === 'entregue') ? 'entregue'
       : p.itens.some((i) => i.kds_status === 'preparando') ? 'preparando'
       : p.itens.some((i) => i.kds_status === 'pronto') ? 'pronto' : 'pendente';
+    // 1.3.1 — KDS inteligente: tempo estimado do pedido = maior tempo individual
+    // (cozinha trabalha os itens em paralelo; o mais demorado dita o total).
+    p.tempo_estimado_min = p.itens.length ? Math.max(...p.itens.map((i) => i.tempo_preparo_min || 0)) : 0;
   }
   return { pedidos, seq: null };
 }

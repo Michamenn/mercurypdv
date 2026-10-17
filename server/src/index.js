@@ -15,7 +15,7 @@ process.on('uncaughtException', (e) => logger.erro(`uncaughtException: ${e.stack
 process.on('unhandledRejection', (e) => logger.erro(`unhandledRejection: ${e?.stack ?? String(e)}`));
 
 iniciarLogger();
-logger.info(`=== Mercury PDV 1.3 iniciando (Node ${process.version}) ===`);
+logger.info(`=== Mercury PDV 1.3.1 iniciando (Node ${process.version}) ===`);
 
 const db = abrirBanco(config.dbPath);
 migrar(db);
@@ -53,7 +53,7 @@ const server = http.createServer(app);
 hub.anexar(server);
 
 // Healthcheck simples (sem dados sensíveis).
-app.get('/health', (_req, res) => res.json({ ok: true, tempo: new Date().toISOString() }));
+app.get('/health', (_req, res) => res.json({ ok: true, versao: '1.3.1', tempo: new Date().toISOString() }));
 
 server.listen(config.porta, config.host, () => {
   logger.info(`Servidor HTTP+WS em http://${config.host}:${config.porta} (ambiente: ${config.ambiente})`);

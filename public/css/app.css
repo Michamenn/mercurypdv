@@ -66,6 +66,23 @@ html, body { margin: 0; height: 100%; background: var(--canvas); color: var(--te
 button, input, select, textarea { font-family: inherit; font-size: 1rem; }
 .app { height: 100%; display: flex; flex-direction: column; }
 
+/* ===== CABEÇALHO (barra superior) ===== */
+/* Barra de app completa: identidade à esquerda, sino à DIREITA. O .spacer
+   empurra sino e menu para a borda direita do cabeçalho (1.3.1). */
+.topo {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--superficie); border-bottom: 1px solid var(--borda);
+  flex-wrap: wrap; flex-shrink: 0;
+}
+.topo .marca { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; white-space: nowrap; }
+.topo .operador { color: var(--texto-fraco); font-size: var(--text-sm); white-space: nowrap; }
+.topo .spacer { flex: 1 1 auto; }
+.topo .nav-toggle { flex-shrink: 0; }
+.estado-conexao { font-size: var(--text-sm); white-space: nowrap; }
+.estado-conexao.on { color: var(--ok); }
+.estado-conexao.off { color: var(--alerta); }
+
 /* ===== TEMA SYSTEM ===== */
 /* Tema Claro */
 html.tema-claro {
@@ -713,3 +730,66 @@ html.tema-premium .badge { background: #FAFAF8; border-radius: 999px; }
 html.tema-premium .display-valor { border-radius: 14px; background: #FAFAF8; }
 html.tema-premium .abas .btn { border-radius: 999px; }
 html.tema-premium h2 { letter-spacing: -.01em; }
+
+/* ============================================================
+   1.3.1 — Sino de notificações, sincronização de dispositivos,
+   KDS inteligente (cronômetros) e impressão térmica
+   ============================================================ */
+
+/* Sino de pedidos prontos no topo */
+.sino { position: relative; margin-left: auto; display: inline-flex; }
+.sino-botao { position: relative; padding: 8px; }
+.sino-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: 999px; background: var(--alerta); color: #FFF;
+  font-size: .7rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; box-shadow: 0 0 0 2px var(--superficie);
+}
+.sino-painel {
+  position: absolute; right: 0; top: calc(100% + 8px); width: min(360px, 92vw);
+  background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2); z-index: 60; overflow: hidden;
+}
+.sino-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--borda); }
+.sino-lista { max-height: 46vh; overflow: auto; outline: none; }
+.sino-item { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-bottom: 1px solid var(--borda); }
+.sino-item.nova { border-left: 4px solid var(--acao); background: color-mix(in srgb, var(--acao) 8%, transparent); }
+.sino-item.lida { opacity: .7; }
+.sino-item small { color: var(--texto-fraco); }
+.sino-quando { font-size: .72rem; }
+.sino-acoes { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--borda); }
+.sino-acoes .btn { flex: 1; }
+
+/* Indicador de sincronização de dispositivos no topo */
+.sync-dispositivos { color: var(--texto-fraco); font-size: .78rem; white-space: nowrap; }
+
+/* KDS inteligente: cronômetro com estimativa e barra de progresso */
+.kds-timer { margin-top: 6px; }
+.kds-timer .kds-timer-rotulo {
+  font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: .82rem; color: var(--texto-fraco);
+  display: block; margin-bottom: 4px;
+}
+.kds-timer.ok .kds-timer-rotulo { color: var(--ok); }
+.kds-timer.perto .kds-timer-rotulo { color: var(--amarelo); font-weight: 700; }
+.kds-timer.atrasado .kds-timer-rotulo { color: var(--alerta); font-weight: 700; }
+.kds-barra { height: 6px; border-radius: 999px; background: var(--canvas); border: 1px solid var(--borda); overflow: hidden; }
+.kds-barra-preenchimento { height: 100%; border-radius: 999px; background: var(--ok); transition: width 1s linear; }
+.kds-timer.perto .kds-barra-preenchimento { background: var(--amarelo); }
+.kds-timer.atrasado .kds-barra-preenchimento { background: var(--alerta); }
+.cartao-kds .kds-item-tempo { color: var(--texto-fraco); }
+
+/* Impressão térmica: pré-visualização da bobina 58/80mm */
+.impressao-previa {
+  background: #fff; color: #000; font-family: var(--mono); font-size: 12px;
+  white-space: pre-wrap; padding: 12px; border-radius: 8px; border: 1px dashed var(--borda);
+  overflow-x: auto; line-height: 1.35;
+}
+
+/* Sessões ativas: rótulo compacto de origem */
+.campo-inline select.campo { padding: 8px 10px; }
+
+/* Mobile: sino e sync acompanham o topo sem quebrar */
+@media (max-width: 768px) {
+  .sino-painel { position: fixed; left: 8px; right: 8px; top: 64px; width: auto; }
+  .sync-dispositivos { display: none; }
+}

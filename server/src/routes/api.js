@@ -8,7 +8,7 @@ import { erro, handlerErros } from '../core/errors.js';
 import { autenticar, exigirPerm, guardaMutacao, verificarStepUpAdmin } from '../auth/rbac.js';
 import { limitarIP } from '../auth/ratelimit.js';
 import { criarSessao, revogarSessao, setCookieSessao, limparCookieSessao } from '../auth/sessions.js';
-import { login, criarPrimeiroAdmin, quantidadeUsuarios, autorizarAdmin, listarUsuarios, criarUsuario, alterarCredenciais, matrizPermissoes, salvarMatriz, desbloquearUsuario, ROTULOS_PERMISSAO } from '../services/usuariosService.js';
+import { login, criarPrimeiroAdmin, quantidadeUsuarios, autorizarAdmin, listarUsuarios, criarUsuario, alterarCredenciais, matrizPermissoes, salvarMatriz, desbloquearUsuario, listarSessoes, desconectarSessao, ROTULOS_PERMISSAO } from '../services/usuariosService.js';
 import * as caixa from '../services/caixaService.js';
 import * as pedidos from '../services/pedidosService.js';
 import * as estoque from '../services/estoqueService.js';
@@ -19,6 +19,8 @@ import * as relatorios from '../services/relatoriosService.js';
 import * as recibos from '../services/recibosService.js';
 import * as salao from '../services/salaoService.js';
 import * as configService from '../services/configService.js';
+import * as notificacoes from '../services/notificacoesService.js';
+import * as impressoras from '../services/impressorasService.js';
 import { listarBackups, criarBackup } from '../tools/backup.js';
 import { registrar, consultar as consultarAuditoria } from '../core/audit.js';
 
@@ -26,6 +28,14 @@ import { registrar, consultar as consultarAuditoria } from '../core/audit.js';
 export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   const r = Router();
   r.use(json({ limit: '64mb' }));
+
+  // 1.3.1 — IP do cliente disponível em TODAS as rotas (login/setup também),
+  // para gravar origem nas sessões ativas e na auditoria. Antes só existia
+  // após o middleware `autenticar`, e o IP nunca era salvo no login.
+  r.use((req, _res, next) => {
+    req.ipCliente = req.ip || req.socket?.remoteAddress || null;
+    next();
+  });
 
   const auth = autenticar(db);
   const perm = (flag) => exigirPerm(db, flag);
@@ -106,6 +116,35 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   r.post('/usuarios/:id/desbloquear', auth, guardaMutacao, perm('pode_gerenciar_usuarios'), (req, res, next) => {
     try { res.json(desbloquearUsuario(db, req.usuario, Number(req.params.id), req.ipCliente)); } catch (e) { next(e); }
   });
+  // ---------- Sessões ativas & dispositivos (1.3.1) ----------
+  // Controle de usuários logados (Web, celular e APK), IP e última atividade.
+  r.get('/sessoes', auth, perm('pode_gerenciar_usuarios'), (req, res) => {
+    const inatividade = configApp.sessaoInatividadeMin ?? 30;
+    const itens = listarSessoes(db, { sessaoIdAtual: req.sessaoId, inatividadeMin: inatividade });
+    // Marca as sessões cujo dono tem um socket WS vivo agora (sincronização em tempo real)
+    const sockets = hub.clientes();
+    for (const s of itens) {
+      s.online = sockets.some((c) => c.usuario === s.nome);
+    }
+    res.json({ sessoes: itens, online_agora: sockets.length, sockets });
+  });
+  r.post('/sessoes/:id/desconectar', auth, guardaMutacao, perm('pode_gerenciar_usuarios'), (req, res, next) => {
+    try {
+      const r = desconectarSessao(db, req.usuario, req.params.id, req.ipCliente, { sessaoIdAtual: req.sessaoId });
+      hub.encerrarSessao(req.params.id); // derruba o socket na hora
+      res.json(r);
+    } catch (e) { next(e); }
+  });
+
+  // Dispositivos conectados via WebSocket agora (sincronização em tempo real).
+  // Qualquer autenticado vê o total; o detalhe exige gerenciar usuários.
+  r.get('/dispositivos', auth, (req, res) => {
+    const p = db.prepare('SELECT pode_gerenciar_usuarios FROM permissoes WHERE cargo = ?').get(req.usuario.cargo);
+    const saida = { total: hub.totalClientes() };
+    if (p?.pode_gerenciar_usuarios) saida.itens = hub.clientes();
+    res.json(saida);
+  });
+
   // Matriz de permissões por cargo (liberação de funções)
   r.get('/permissoes', auth, perm('pode_config_sistema'), (_req, res) => {
     res.json({ flags: matrizPermissoes(db), rotulos: ROTULOS_PERMISSAO });
@@ -464,6 +503,37 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   });
   r.get('/kds', auth, perm('pode_ver_kds'), (_req, res) => res.json(pedidos.filaKds(db)));
 
+  // ---------- Notificações do sino (1.3.1) ----------
+  // Pedidos prontos na cozinha avisam garçons e atendentes em tempo real.
+  r.get('/notificacoes', auth, (req, res, next) => {
+    try { res.json(notificacoes.listar(db)); } catch (e) { next(e); }
+  });
+  r.post('/notificacoes/ler-todas', auth, guardaMutacao, (req, res, next) => {
+    try { res.json(notificacoes.marcarTodasLidas(db)); } catch (e) { next(e); }
+  });
+  r.post('/notificacoes/limpar', auth, guardaMutacao, (req, res, next) => {
+    try { res.json(notificacoes.limpar(db)); } catch (e) { next(e); }
+  });
+
+  // ---------- Impressoras térmicas (1.3.1) ----------
+  r.get('/impressoras', auth, (_req, res) => res.json({ impressoras: impressoras.listarImpressoras(db) }));
+  r.post('/impressoras', auth, guardaMutacao, perm('pode_config_sistema'), (req, res, next) => {
+    try { res.status(201).json(impressoras.salvarImpressora(db, req.usuario, req.body, null, req.ipCliente)); } catch (e) { next(e); }
+  });
+  r.put('/impressoras/:id', auth, guardaMutacao, perm('pode_config_sistema'), (req, res, next) => {
+    try { res.json(impressoras.salvarImpressora(db, req.usuario, req.body, Number(req.params.id), req.ipCliente)); } catch (e) { next(e); }
+  });
+  r.delete('/impressoras/:id', auth, guardaMutacao, perm('pode_config_sistema'), (req, res, next) => {
+    try { res.json(impressoras.removerImpressora(db, req.usuario, Number(req.params.id), req.ipCliente)); } catch (e) { next(e); }
+  });
+  // Pré-visualização de teste com os dados da empresa e o layout da impressora.
+  r.post('/impressoras/:id/teste', auth, guardaMutacao, perm('pode_config_sistema'), (req, res, next) => {
+    try {
+      const imp = impressoras.obterImpressora(db, Number(req.params.id));
+      res.json({ impressora: imp, previa: impressoras.previaTeste(db, imp) });
+    } catch (e) { next(e); }
+  });
+
   // ---------- Caixa ----------
   r.get('/caixa/atual', auth, (_req, res) => res.json(caixa.resumoAberto(db)));
   r.post('/caixa/abrir', auth, guardaMutacao, perm('pode_abrir_fechar_caixa'), (req, res, next) => {
@@ -535,6 +605,25 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   });
   r.get('/relatorios/vendas', auth, perm('pode_ver_relatorios'), (req, res, next) => {
     try { res.json(relatorios.vendasDoPeriodo(db, req.query.de, req.query.ate)); } catch (e) { next(e); }
+  });
+  // 1.3.1 — Exportação CSV direta (Excel pt-BR: ";" + BOM UTF-8)
+  r.get('/relatorios/vendas.csv', auth, perm('pode_ver_relatorios'), (req, res, next) => {
+    try {
+      const csv = relatorios.vendasCSV(db, req.query.de, req.query.ate);
+      registrar(db, { usuarioId: req.usuario.id, acao: 'relatorio_csv_exportado', entidade: 'relatorio', entidadeId: 'vendas', detalhes: { de: req.query.de, ate: req.query.ate }, ip: req.ipCliente });
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="vendas-${req.query.de}-a-${req.query.ate}.csv"`);
+      res.send(csv);
+    } catch (e) { next(e); }
+  });
+  r.get('/relatorios/resumo.csv', auth, perm('pode_ver_relatorios'), (req, res, next) => {
+    try {
+      const csv = relatorios.resumoCSV(db, req.query.de, req.query.ate);
+      registrar(db, { usuarioId: req.usuario.id, acao: 'relatorio_csv_exportado', entidade: 'relatorio', entidadeId: 'resumo', detalhes: { de: req.query.de, ate: req.query.ate }, ip: req.ipCliente });
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="resumo-${req.query.de}-a-${req.query.ate}.csv"`);
+      res.send(csv);
+    } catch (e) { next(e); }
   });
 
   // ---------- Recibos (não fiscais) ----------
@@ -698,6 +787,7 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
   r.post('/admin/dev', auth, guardaMutacao, perm('pode_config_sistema'), (req, res, next) => {
     try {
       verificarStepUpAdmin(db, crypto, pepper, req.body, { usuarioExecutorId: req.usuario.id });
+      const cfgTodas = configService.obterTodas(db);
       const stats = {
         node: process.version, uptime_s: Math.round(process.uptime()),
         ambiente: configApp.ambiente,
@@ -708,6 +798,10 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
         caixa_aberto: !!caixa.sessaoAberta(db),
         backups: listarBackups().backups.length,
         mem_mb: Math.round(process.memoryUsage().rss / 1048576),
+        // 1.3.1 — sincronização de dispositivos e endereço online (AWS)
+        dispositivos_conectados: hub.totalClientes(),
+        url_publica: cfgTodas.url_publica || configApp.urlPublica || '',
+        versao: '1.3.1',
       };
       res.json({ diagnostico: stats });
     } catch (e) { next(e); }

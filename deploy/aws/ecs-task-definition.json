@@ -1,0 +1,80 @@
+{
+  "family": "mercury-pdv",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "<EXECUTION_ROLE_ARN>",
+  "taskRoleArn": "<TASK_ROLE_ARN>",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "containerDefinitions": [
+    {
+      "name": "mercury-pdv",
+      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/mercury-pdv:1.3.1",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 3000, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "LP_HOST", "value": "0.0.0.0" },
+        { "name": "LP_PORTA", "value": "3000" },
+        { "name": "LP_AMBIENTE", "value": "producao" },
+        { "name": "LP_URL_PUBLICA", "value": "https://pdv.seudominio.com.br" },
+        { "name": "TZ", "value": "America/Sao_Paulo" }
+      ],
+      "secrets": [
+        {
+          "name": "LP_PEPPER",
+          "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:mercury-pdv/pepper"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/mercury-pdv",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "mercury"
+        }
+      },
+      "mountPoints": [
+        { "sourceVolume": "dados", "containerPath": "/app/data" },
+        { "sourceVolume": "backups", "containerPath": "/app/backups" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      },
+      "stopTimeout": 60
+    }
+  ],
+  "volumes": [
+    {
+      "name": "dados",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "<EFS_FILE_SYSTEM_ID>",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "<EFS_ACCESS_POINT_ID>",
+          "iam": "ENABLED"
+        }
+      }
+    },
+    {
+      "name": "backups",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "<EFS_FILE_SYSTEM_ID>",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "<EFS_ACCESS_POINT_ID>",
+          "iam": "ENABLED"
+        }
+      }
+    }
+  ]
+}

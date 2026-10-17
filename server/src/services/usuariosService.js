@@ -223,3 +223,59 @@ export function desbloquearUsuario(db, adminExecutor, usuarioId, ip) {
   registrar(db, { usuarioId: adminExecutor.id, acao: 'usuario_desbloqueado', entidade: 'usuario', entidadeId: usuarioId, detalhes: { nome: alvo.nome }, ip });
   return { ok: true };
 }
+
+// ---------- Sessões ativas (1.3.1) ----------
+// Controle de usuários logados: quem está conectado agora (Web ou celular/APK),
+// de qual IP e qual foi a última atividade, com desconexão individual.
+
+// Classifica a origem pelo User-Agent informado pelo cliente no login.
+export function rotuloDispositivo(userAgent) {
+  const ua = String(userAgent ?? '');
+  if (!ua) return 'Desconhecido';
+  if (/mercury[-_ ]?apk|cordova|capacitor/i.test(ua)) return 'APK Mobile';
+  if (/android|iphone|ipad|ipod|mobile/i.test(ua)) return 'Celular (navegador)';
+  return 'Web (computador)';
+}
+
+export function listarSessoes(db, { sessaoIdAtual = null, inatividadeMin = 30 } = {}) {
+  const limiteInatividade = Date.now() - inatividadeMin * 60_000;
+  const linhas = db.prepare(
+    `SELECT s.id, s.usuario_id, u.nome, u.cargo, u.ativo, s.criado_em, s.ultimo_uso, s.expira_em, s.ip, s.user_agent
+     FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
+     WHERE s.revogada = 0 AND s.expira_em > ?
+     ORDER BY s.ultimo_uso DESC LIMIT 200`
+  ).all(new Date().toISOString());
+  return linhas
+    .filter((s) => new Date(s.ultimo_uso).getTime() >= limiteInatividade)
+    .map((s) => ({
+      id: s.id,
+      usuario_id: s.usuario_id,
+      nome: s.nome,
+      cargo: s.cargo,
+      ativo: s.ativo,
+      origem: rotuloDispositivo(s.user_agent),
+      ip: s.ip,
+      criado_em: s.criado_em,
+      ultimo_uso: s.ultimo_uso,
+      expira_em: s.expira_em,
+      atual: s.id === sessaoIdAtual,
+    }));
+}
+
+export function desconectarSessao(db, adminExecutor, sessaoId, ip, { sessaoIdAtual = null } = {}) {
+  const s = db.prepare(
+    `SELECT s.*, u.nome AS usuario_nome FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id WHERE s.id = ?`
+  ).get(String(sessaoId));
+  if (!s || s.revogada) throw erro.naoEncontrado('Sessão não encontrada (ou já encerrada).');
+  if (sessaoIdAtual && s.id === sessaoIdAtual) {
+    throw erro.validacao('Use "Sair" para encerrar a sua própria sessão.');
+  }
+  return transacao(db, () => {
+    db.prepare('UPDATE sessoes SET revogada = 1 WHERE id = ?').run(s.id);
+    registrar(db, {
+      usuarioId: adminExecutor.id, acao: 'sessao_desconectada', entidade: 'sessao', entidadeId: s.id,
+      detalhes: { usuario_alvo: s.usuario_nome, ip_alvo: s.ip }, ip,
+    });
+    return { ok: true, usuario: s.usuario_nome };
+  });
+}

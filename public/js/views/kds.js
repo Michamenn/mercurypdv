@@ -1,4 +1,7 @@
 // KDS de Cozinha: kanban em tempo real (WS), atraso calculado por horários do servidor (KDS-002)
+// 1.3.1 — KDS Inteligente: cada card mostra o tempo estimado de preparo do pedido
+// (maior tempo individual dos itens), cronômetro ao vivo, barra de progresso
+// e alerta quando estoura a estimativa — em vez de um limite fixo de 15 min.
 import { ic } from '../icons.js';
 import { get, post, fmt } from '../api.js';
 import { toast, escapar, modal } from '../ui.js';
@@ -7,21 +10,78 @@ import { tocarNovoPedido, tocarPronto, tocarAtrasado, renderSoundConfig, carrega
 
 let cancelarEventos = null;
 let tick = null;
+let tickLocal = null;
 let atrasadosJaAlertados = new Set();
 
 carregarPreferenciasSom();
 
 export async function render(conteudo, _sub, estadoApp) {
   cancelarEventos?.();
+  clearInterval(tick);
+  clearInterval(tickLocal);
   atrasadosJaAlertados = new Set();
   cancelarEventos = aoEvento((ev) => {
     if (ev.tipo === 'kds.enviado') tocarNovoPedido();
     if (ev.tipo === 'kds.status' && ev.payload?.para === 'pronto') tocarPronto();
     if (['kds.enviado', 'kds.status', 'pedido.atualizado', 'pedido.fechado'].includes(ev.tipo)) atualizar(conteudo, estadoApp);
   });
-  clearInterval(tick);
   tick = setInterval(() => atualizar(conteudo, estadoApp), 30000);
+  // cronômetro local: atualiza os relógios dos cards a cada segundo sem refazer a fila
+  tickLocal = setInterval(() => atualizarTimersLocais(conteudo), 1000);
   await atualizar(conteudo, estadoApp);
+}
+
+function dadosTimer(p) {
+  const base = p.itens[0]?.enviado_cozinha_em ?? p.aberto_em;
+  const estMin = p.tempo_estimado_min || 15;
+  const decorridoMs = Date.now() - new Date(base).getTime();
+  const estMs = estMin * 60000;
+  const min = Math.floor(decorridoMs / 60000);
+  const pct = Math.max(0, Math.min(100, Math.round((decorridoMs / estMs) * 100)));
+  const atrasado = decorridoMs > estMs;
+  const restanteMin = Math.ceil((estMs - decorridoMs) / 60000);
+  return { base, estMin, decorridoMs, min, pct, atrasado, restanteMin };
+}
+
+function blocoTimer(p) {
+  const t = dadosTimer(p);
+  const rotulo = t.atrasado
+    ? `⏱ ${t.min} min · ATRASADO ${-t.restanteMin} min`
+    : `⏱ ${t.min} / ${t.estMin} min · ${t.pct}%`;
+  return `
+    <div class="kds-timer ${t.atrasado ? 'atrasado' : t.pct >= 80 ? 'perto' : 'ok'}" data-kds-timer data-enviado="${t.base}" data-est="${t.estMin}">
+      <span class="kds-timer-rotulo">${rotulo}</span>
+      <div class="kds-barra" role="progressbar" aria-valuenow="${t.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Progresso do preparo">
+        <div class="kds-barra-preenchimento" style="width:${t.pct}%"></div>
+      </div>
+    </div>`;
+}
+
+// Re-render leve por segundo: só os cronômetros mudam, sem novas requisições.
+function atualizarTimersLocais(conteudo) {
+  conteudo?.querySelectorAll('[data-kds-timer]').forEach((el) => {
+    const base = el.dataset.enviado;
+    const estMin = Number(el.dataset.est) || 15;
+    if (!base) return;
+    const decorridoMs = Date.now() - new Date(base).getTime();
+    const estMs = estMin * 60000;
+    const min = Math.floor(decorridoMs / 60000);
+    const pct = Math.max(0, Math.min(100, Math.round((decorridoMs / estMs) * 100)));
+    const atrasado = decorridoMs > estMs;
+    const restanteMin = Math.ceil((estMs - decorridoMs) / 60000);
+    const rotulo = atrasado
+      ? `⏱ ${min} min · ATRASADO ${-restanteMin} min`
+      : `⏱ ${min} / ${estMin} min · ${pct}%`;
+    const rotuloEl = el.querySelector('.kds-timer-rotulo');
+    if (rotuloEl) rotuloEl.textContent = rotulo;
+    el.classList.toggle('atrasado', atrasado);
+    el.classList.toggle('perto', !atrasado && pct >= 80);
+    el.classList.toggle('ok', !atrasado && pct < 80);
+    const barra = el.querySelector('.kds-barra-preenchimento');
+    if (barra) barra.style.width = `${pct}%`;
+    const pg = el.querySelector('.kds-barra');
+    if (pg) pg.setAttribute('aria-valuenow', String(pct));
+  });
 }
 
 async function atualizar(conteudo, estadoApp) {
@@ -36,15 +96,15 @@ async function atualizar(conteudo, estadoApp) {
       : p.itens.some((i) => i.kds_status === 'preparando') ? 'preparando' : 'pendente';
     if (colunas[visual]) colunas[visual].push(p);
   }
-  const agora = Date.now();
   const cartao = (p) => {
-    const min = Math.floor((agora - new Date(p.itens[0]?.enviado_cozinha_em ?? p.aberto_em).getTime()) / 60000);
-    const atrasado = min > 15;
+    const t = dadosTimer(p);
+    const tempos = [...new Set(p.itens.map((i) => i.tempo_preparo_min || 0))];
     return `
-      <div class="cartao-kds ${visualDe(p)} ${atrasado ? 'atrasado' : ''}" data-pedido="${p.id}" role="button" tabindex="0">
+      <div class="cartao-kds ${visualDe(p)} ${t.atrasado ? 'atrasado' : ''}" data-pedido="${p.id}" role="button" tabindex="0">
         <strong>#${p.id}</strong> ${p.mesa_numero ? `· Mesa ${p.mesa_numero}` : '· Balcão'}
-        <div class="tempo">⏱ ${min} min ${atrasado ? '· ATRASADO' : ''}</div>
-        ${p.itens.map((i) => `<div>${i.quantidade}× ${escapar(i.nome_produto)}${i.adicionais ? `<br><small style="color:var(--texto-fraco)">+ ${escapar(i.adicionais)}</small>` : ''}${i.observacoes ? `<br><small style="color:var(--amarelo)">${ic('lapis')} ${escapar(i.observacoes)}</small>` : ''}</div>`).join('<hr style="border-color:var(--borda);border-style:dashed">')}
+        ${blocoTimer(p)}
+        ${p.itens.map((i) => `<div>${i.quantidade}× ${escapar(i.nome_produto)}${i.tempo_preparo_min ? `<small class="kds-item-tempo" title="Tempo de preparo estimado"> (${i.tempo_preparo_min} min)</small>` : ''}${i.adicionais ? `<br><small style="color:var(--texto-fraco)">+ ${escapar(i.adicionais)}</small>` : ''}${i.observacoes ? `<br><small style="color:var(--amarelo)">${ic('lapis')} ${escapar(i.observacoes)}</small>` : ''}</div>`).join('<hr style="border-color:var(--borda);border-style:dashed">')}
+        ${tempos.length > 1 ? `<small style="color:var(--texto-fraco)">Estimativa: ${p.tempo_estimado_min} min (item mais demorado)</small>` : ''}
         <button class="btn primario" data-avancar="${p.id}" style="width:100%;margin-top:8px">${rotuloAvanco(visualDe(p))}</button>
         <button class="btn ghost" data-ticket="${p.id}" style="width:100%;margin-top:6px"> Ticket</button>
       </div>`;
@@ -55,6 +115,7 @@ async function atualizar(conteudo, estadoApp) {
   conteudo.innerHTML = `
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <h2 style="margin:0;flex:1"> Cozinha — fila em tempo real</h2>
+      <span class="badge" title="Cada pedido usa o tempo de preparo cadastrado nos produtos">${ic('relogio')} Estimativa por produto</span>
       <button class="btn ghost" id="btn-som-kds" aria-label="Som — configurar sons da cozinha"> Som</button>
     </div>
     <div id="som-kds-config"></div>
@@ -75,11 +136,11 @@ async function atualizar(conteudo, estadoApp) {
     if (somAberto) renderSoundConfig(somBox.querySelector('#som-cfg'));
   };
 
-  // Alerta sonoro de atraso: dispara 1× por pedido quando ele passa a atrasado
+  // Alerta sonoro de atraso: dispara 1× por pedido quando estoura a estimativa
   const agoraAtrasados = new Set();
   for (const p of fila.pedidos) {
-    const min = Math.floor((Date.now() - new Date(p.itens[0]?.enviado_cozinha_em ?? p.aberto_em).getTime()) / 60000);
-    if (min > 15 && !atrasadosJaAlertados.has(p.id)) agoraAtrasados.add(p.id);
+    const t = dadosTimer(p);
+    if (t.atrasado && !atrasadosJaAlertados.has(p.id)) agoraAtrasados.add(p.id);
   }
   if (agoraAtrasados.size > 0) {
     tocarAtrasado();

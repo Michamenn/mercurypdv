@@ -206,11 +206,53 @@ export function listarMesas(db) {
   ).all();
 }
 
+// 1.3.1 — posicionamento automático: procura células livres na grade do salão
+// (passo de 130px = mesa 110px + 20px de corredor) varrendo linha por linha.
+// Nunca sobrepõe mesas existentes: cada nova mesa cai LADO A LADO da anterior,
+// quebrando para a fileira de baixo ao atingir a borda direita do mapa.
+const MESA_PASSO = 130;   // distância entre mesas na grade
+const MESA_MARGEM = 40;   // afastamento das bordas do mapa
+const MESA_LARGURA = 110; // tamanho padrão (idêntico ao backfill da migração 010)
+const MESA_ALTURA = 110;
+
+function posicoesLivresNaGrade(db, quantidade) {
+  let larguraMapa = 1200;
+  try {
+    const cfg = db.prepare(`SELECT valor FROM configuracao WHERE chave = 'layout_salao_largura'`).get();
+    larguraMapa = Math.max(400, Number(cfg?.valor) || 1200);
+  } catch { /* config inexistente em banco antigo */ }
+  const colunas = Math.max(1, Math.floor((larguraMapa - MESA_MARGEM) / MESA_PASSO));
+
+  const ocupadas = db.prepare('SELECT pos_x, pos_y, largura, altura FROM mesas').all()
+    .map((m) => ({
+      x1: m.pos_x, y1: m.pos_y,
+      x2: m.pos_x + (m.largura || MESA_LARGURA), y2: m.pos_y + (m.altura || MESA_ALTURA),
+    }));
+  // células já reservadas por mesas deste mesmo lote
+  const reservadas = [];
+  const colide = (x, y) => {
+    const f = (r) => x < r.x2 + 20 && x + MESA_LARGURA + 20 > r.x1 && y < r.y2 + 20 && y + MESA_ALTURA + 20 > r.y1;
+    return ocupadas.some(f) || reservadas.some(f);
+  };
+
+  const livres = [];
+  for (let linha = 0; livres.length < quantidade && linha < 200; linha++) {
+    for (let col = 0; col < colunas && livres.length < quantidade; col++) {
+      const x = MESA_MARGEM + col * MESA_PASSO;
+      const y = MESA_MARGEM + linha * MESA_PASSO;
+      if (colide(x, y)) continue;
+      livres.push({ pos_x: x, pos_y: y });
+      reservadas.push({ x1: x, y1: y, x2: x + MESA_LARGURA, y2: y + MESA_ALTURA });
+    }
+  }
+  return livres;
+}
+
 export function salvarMesa(db, usuario, body, mesaId = null, ip) {
-  const numero = assertInt(body?.numero, 'numero', { minimo: 1, maximo: 9999 });
   const setor = texto(body?.setor ?? 'salao', 'setor', { obrigatorio: false, maximo: 40, padrao: 'salao' }) || 'salao';
   return transacao(db, () => {
     if (mesaId) {
+      const numero = assertInt(body?.numero, 'numero', { minimo: 1, maximo: 9999 });
       const atual = db.prepare('SELECT * FROM mesas WHERE id = ?').get(mesaId);
       if (!atual) throw erro.naoEncontrado('Mesa não encontrada.');
       // Renumerar só com mesa livre (evita confundir comandas em atendimento)
@@ -223,11 +265,38 @@ export function salvarMesa(db, usuario, body, mesaId = null, ip) {
       registrar(db, { usuarioId: usuario.id, acao: 'mesa_alterada', entidade: 'mesa', entidadeId: mesaId, detalhes: { numero, setor }, ip });
       return db.prepare('SELECT * FROM mesas WHERE id = ?').get(mesaId);
     }
-    const dup = db.prepare('SELECT id FROM mesas WHERE numero = ?').get(numero);
-    if (dup) throw erro.conflito('409_CONFLITO_ESTADO', `Mesa ${numero} já existe.`);
-    const info = db.prepare(`INSERT INTO mesas (numero, setor, criado_em) VALUES (?, ?, ?)`).run(numero, setor, agoraISO());
-    registrar(db, { usuarioId: usuario.id, acao: 'mesa_criada', entidade: 'mesa', entidadeId: Number(info.lastInsertRowid), detalhes: { numero, setor }, ip });
-    return db.prepare('SELECT * FROM mesas WHERE id = ?').get(Number(info.lastInsertRowid));
+
+    // 1.3.1 — criação em LOTE: N mesas de uma vez, numeradas em sequência e
+    // posicionadas lado a lado na grade do salão (nunca umas sobre as outras).
+    const quantidade = assertInt(body?.quantidade ?? 1, 'quantidade', { minimo: 1, maximo: 50 });
+    const assentos = assertInt(body?.assentos ?? 4, 'assentos', { minimo: 1, maximo: 40 });
+    const numeroCru = body?.numero;
+    const numeroBase = (numeroCru === undefined || numeroCru === null || String(numeroCru).trim() === '')
+      ? null : assertInt(numeroCru, 'numero', { minimo: 1, maximo: 9999 });
+    if (numeroBase !== null && numeroBase + quantidade - 1 > 9999) {
+      throw erro.validacao(`Criar ${quantidade} mesa(s) a partir do nº ${numeroBase} ultrapassa o número máximo (9999).`);
+    }
+
+    const maxNumero = db.prepare('SELECT MAX(numero) AS n FROM mesas').get().n ?? 0;
+    const posicoes = posicoesLivresNaGrade(db, quantidade);
+    const criadas = [];
+    for (let i = 0; i < quantidade; i++) {
+      const numero = numeroBase !== null ? numeroBase + i : maxNumero + 1 + i;
+      const dup = db.prepare('SELECT id FROM mesas WHERE numero = ?').get(numero);
+      if (dup) throw erro.conflito('409_CONFLITO_ESTADO', `Mesa ${numero} já existe.`);
+      const pos = posicoes[i] ?? { pos_x: MESA_MARGEM, pos_y: MESA_MARGEM };
+      const info = db.prepare(
+        `INSERT INTO mesas (numero, setor, pos_x, pos_y, largura, altura, assentos, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(numero, setor, pos.pos_x, pos.pos_y, MESA_LARGURA, MESA_ALTURA, assentos, agoraISO());
+      criadas.push({ id: Number(info.lastInsertRowid), numero, setor, pos_x: pos.pos_x, pos_y: pos.pos_y, assentos });
+    }
+    registrar(db, {
+      usuarioId: usuario.id, acao: 'mesa_criada', entidade: 'mesa', entidadeId: criadas[0]?.id ?? null,
+      detalhes: { quantidade, numeros: criadas.map((c) => c.numero), setor }, ip,
+    });
+    // Compatibilidade: a resposta mantém os campos da 1ª mesa na raiz
+    // (telas e testes legados leem mesa.id / mesa.numero do corpo).
+    return { ...criadas[0], criadas: criadas.length, mesas: criadas };
   });
 }
 

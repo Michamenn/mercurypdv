@@ -423,3 +423,53 @@ test('SP-017: comanda fecha, a taxa some do histórico e a conciliação bate', 
     assert.equal(v.corpo.soma_centavos, 8250);
   } finally { await sv.fechar(); }
 });
+
+test('SP-018: criação em lote — quantidade de uma vez, numeradas em sequência e lado a lado', async () => {
+  const sv = await iniciarServidorTeste();
+  try {
+    const s = await semear(sv);
+    // seed já criou mesas 1 e 2 (posição automática da grade)
+    const lote = await s.adminCli.post('/mesas', { quantidade: 8, setor: 'salao', assentos: 2 });
+    assert.equal(lote.status, 201);
+    assert.equal(lote.corpo.criadas, 8);
+    // numeração automática: continua do último (2) → 3..10
+    const numeros = lote.corpo.mesas.map((x) => x.numero);
+    assert.deepEqual(numeros, [3, 4, 5, 6, 7, 8, 9, 10]);
+    // compatibilidade: campos da 1ª mesa na raiz da resposta
+    assert.equal(lote.corpo.numero, 3);
+    assert.ok(lote.corpo.id);
+
+    // posições LADO A LADO: nenhuma dupla de mesas sobrepõe a outra
+    const mapa = await s.adminCli.get('/salao/mapa');
+    const todas = mapa.corpo.mesas.map((m) => ({
+      x1: m.pos_x, y1: m.pos_y, x2: m.pos_x + m.largura, y2: m.pos_y + m.altura, numero: m.numero,
+    }));
+    assert.equal(todas.length, 10);
+    const colide = (a, b) => a.x1 < b.x2 + 20 && a.x2 + 20 > b.x1 && a.y1 < b.y2 + 20 && a.y2 + 20 > b.y1;
+    for (let i = 0; i < todas.length; i++) {
+      for (let j = i + 1; j < todas.length; j++) {
+        assert.ok(!colide(todas[i], todas[j]),
+          `mesas ${todas[i].numero} e ${todas[j].numero} não podem ocupar o mesmo lugar`);
+      }
+    }
+    // assentos aplicados ao lote
+    const doLote = todas.filter((m) => m.numero >= 3 && m.numero <= 10);
+    const linha = await sv.db.prepare('SELECT assentos FROM mesas WHERE numero = 3').get();
+    assert.equal(linha.assentos, 2);
+
+    // numeração explícita a partir do 50
+    const lote2 = await s.adminCli.post('/mesas', { quantidade: 3, numero: 50 });
+    assert.equal(lote2.status, 201);
+    assert.deepEqual(lote2.corpo.mesas.map((x) => x.numero), [50, 51, 52]);
+
+    // número existente no meio do lote → conflito e nada é criado (transação)
+    const conflito = await s.adminCli.post('/mesas', { quantidade: 3, numero: 9 });
+    assert.equal(conflito.status, 409);
+    const totalApos = sv.db.prepare('SELECT COUNT(*) AS n FROM mesas').get().n;
+    assert.equal(totalApos, 13, 'lote com conflito não cria mesa nenhuma');
+
+    // garçom não cria mesa (permissão de gerenciar mesas)
+    const negado = await s.garcomCli.post('/mesas', { quantidade: 1 });
+    assert.equal(negado.status, 403);
+  } finally { await sv.fechar(); }
+});
