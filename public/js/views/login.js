@@ -124,6 +124,20 @@ export function render(raiz, mensagem, aoEntrar) {
       refletir();
     };
   });
+  // Teclado físico no PIN: dígitos, Backspace apaga, Delete limpa, Enter entra.
+  // Vale só enquanto a área de PIN estiver visível; se o operador trocar para
+  // e-mail/senha (formulário), os campos recebem o teclado normalmente.
+  const areaPin = raiz.querySelector('#area-pin');
+  const aoTeclaPin = (e) => {
+    if (!document.body.contains(areaPin) || areaPin.offsetParent === null) { document.removeEventListener('keydown', aoTeclaPin, true); return; }
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    if (/^[0-9]$/.test(e.key)) { raiz.querySelector(`#pin-pad [data-n="${e.key}"]`)?.click(); e.preventDefault(); }
+    else if (e.key === 'Backspace') { raiz.querySelector('#pin-pad [data-n="<"]')?.click(); e.preventDefault(); }
+    else if (e.key === 'Delete') { raiz.querySelector('#pin-pad [data-n="C"]')?.click(); e.preventDefault(); }
+    else if (e.key === 'Enter' && !btnOk.disabled) { btnOk.click(); e.preventDefault(); }
+  };
+  document.addEventListener('keydown', aoTeclaPin, true);
   btnOk.onclick = async () => {
     if (!selecionado) { toast('Selecione seu usuário', 'erro'); return; }
     if (autenticando) return; // trava duplo toque (o rate limit conta cada tentativa)

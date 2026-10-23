@@ -2,6 +2,7 @@
 import { ic } from '../icons.js';
 import { get, post, put, del, fmt, reaisParaCentavos } from '../api.js';
 import { toast, modal, confirmar, escapar } from '../ui.js';
+import { opcoesImpressao, montarCupomHTML, aplicarPaginaBobina } from '../recibo.js';
 // Nota: `renderThemeConfig` continua exportado por theme.js (não foi removido),
 // mas a aba "Aparência" passou a usar a central unificada de personalização.
 import { render as renderCombos } from './combos.js';
@@ -915,7 +916,7 @@ async function telaConfig(painel) {
   const cfg = await get('/config');
   // Converte centavos persistidos em texto "R$" para edição confortável.
   const reaisComoTexto = (centavos) => (Number(centavos) / 100).toFixed(2).replace('.', ',');
-  const campos = [['empresa_nome', 'Nome da empresa'], ['empresa_cnpj', 'CNPJ'], ['empresa_telefone', 'Telefone'], ['empresa_endereco', 'Endereço'], ['recibo_rodape', 'Rodapé do recibo']];
+  const campos = [['empresa_nome', 'Nome da empresa'], ['empresa_cnpj', 'CNPJ'], ['empresa_telefone', 'Telefone'], ['empresa_endereco', 'Endereço']];
   
   // Calcula a URL de acesso mobile a partir da origem em que o painel está
   // aberto — funciona em localhost e em qualquer IP da rede local.
@@ -941,6 +942,7 @@ async function telaConfig(painel) {
   // ordem em que aparecem na tela.
   const SECOES = [
     ['empresa', 'Empresa'],
+    ['cupom', 'Cupom'],
     ['comportamento', 'Comportamento'],
     ['salao', 'Salão Pro'],
     ['taxa', 'Taxa de serviço'],
@@ -959,6 +961,40 @@ async function telaConfig(painel) {
       <div class="grade-config">
         ${campos.map(([k, r]) => `<label><span class="campo-titulo">${escapar(r)}</span>
           <input class="campo" data-cfg="${k}" value="${escapar(cfg[k] ?? '')}" /></label>`).join('')}
+      </div>
+    </div>
+
+    <div class="cartao cartao-secao" id="cfg-cupom">
+      <h3 class="cartao-titulo">${ic('impressora')} Cupom não fiscal — bobina</h3>
+      <p><small style="color:var(--texto-fraco)">Largura do papel, cabeçalho e rodapé impressos no cupom (tela Conta e recibo do caixa).</small></p>
+      <div class="grade-config">
+        <label><span class="campo-titulo">Largura da bobina</span>
+          <select class="campo" data-cfg="recibo_largura_mm">
+            <option value="80" ${cfg.recibo_largura_mm !== '58' ? 'selected' : ''}>80 mm (térmica padrão)</option>
+            <option value="58" ${cfg.recibo_largura_mm === '58' ? 'selected' : ''}>58 mm (portátil)</option>
+          </select></label>
+        <label><span class="campo-titulo">Margem superior (mm)</span>
+          <input class="campo" type="number" min="0" max="50" data-cfg="recibo_margem_sup_mm" value="${escapar(cfg.recibo_margem_sup_mm ?? '0')}" /></label>
+        <label><span class="campo-titulo">Margem inferior (mm)</span>
+          <input class="campo" type="number" min="0" max="50" data-cfg="recibo_margem_inf_mm" value="${escapar(cfg.recibo_margem_inf_mm ?? '0')}" /></label>
+        <label><span class="campo-titulo">Extensão após o conteúdo (mm) — espaço antes do corte</span>
+          <input class="campo" type="number" min="0" max="100" data-cfg="recibo_extensao_mm" value="${escapar(cfg.recibo_extensao_mm ?? '0')}" /></label>
+        <label class="pers-check"><input type="checkbox" data-flag="recibo_logo_imprimir" ${cfg.recibo_logo_imprimir === '1' ? 'checked' : ''}/> <span><strong>Imprimir logomarca no cupom</strong><br><small style="color:var(--texto-fraco)">Usa a logo enviada na seção Logomarca.</small></span></label>
+        <label><span class="campo-titulo">Modo de cor da logo (térmica imprime em preto)</span>
+          <select class="campo" data-cfg="recibo_logo_modo">
+            <option value="mono" ${cfg.recibo_logo_modo !== 'dither' && cfg.recibo_logo_modo !== 'original' ? 'selected' : ''}>Monocromático (recomendado)</option>
+            <option value="dither" ${cfg.recibo_logo_modo === 'dither' ? 'selected' : ''}>Preto e branco — dithering</option>
+            <option value="original" ${cfg.recibo_logo_modo === 'original' ? 'selected' : ''}>Original (colorido)</option>
+          </select></label>
+        <label><span class="campo-titulo">Brilho da logo (−100 a 100)</span>
+          <input class="campo" type="number" min="-100" max="100" step="5" data-cfg="recibo_logo_brilho" value="${escapar(cfg.recibo_logo_brilho ?? '0')}" /></label>
+        <label><span class="campo-titulo">Contraste da logo (−100 a 100)</span>
+          <input class="campo" type="number" min="-100" max="100" step="5" data-cfg="recibo_logo_contraste" value="${escapar(cfg.recibo_logo_contraste ?? '0')}" /></label>
+        <label class="pers-check"><input type="checkbox" data-flag="recibo_logo_bordas" ${cfg.recibo_logo_bordas === '1' ? 'checked' : ''}/> <span><strong>Bordas no cabeçalho gráfico</strong><br><small style="color:var(--texto-fraco)">Moldura preta em volta da logo impressa.</small></span></label>
+        <label><span class="campo-titulo">Cabeçalho — linhas no topo, abaixo dos dados da empresa</span>
+          <textarea class="campo" rows="2" data-cfg="recibo_cabecalho" placeholder="Ex.: Consumo no local&#10;Não é documento fiscal">${escapar(cfg.recibo_cabecalho ?? '')}</textarea></label>
+        <label><span class="campo-titulo">Rodapé — mensagem final do cupom</span>
+          <textarea class="campo" rows="2" data-cfg="recibo_rodape" placeholder="Ex.: Obrigado pela preferência!">${escapar(cfg.recibo_rodape ?? '')}</textarea></label>
       </div>
     </div>
 
@@ -1510,6 +1546,18 @@ async function telaImpressao(painel) {
         A impressão usa o diálogo do sistema operacional — instale a impressora no Windows e escolha-a ao imprimir.
       </small></p>
     </div>
+    <div class="cartao" style="margin-bottom:12px">
+      <strong>${ic('engrenagem')} Modo Kiosque — impressão silenciosa</strong>
+      <p style="margin:6px 0 8px"><small style="color:var(--texto-fraco)">
+        Cria na Área de Trabalho o atalho <strong>Mercury PDV - Modo Kiosque</strong>, que abre o sistema no navegador com
+        <code>--kiosk-printing</code>: o cupom vai direto para a impressora padrão, sem o diálogo de impressão.
+      </small></p>
+      <div id="kiosque-estado" class="vazio" style="padding:6px 0">Verificando…</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn primario" id="kiosque-ativar">Ativar no Windows</button>
+        <button class="btn ghost perigo" id="kiosque-remover">Remover atalho</button>
+      </div>
+    </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <button class="btn primario" id="imp-nova">+ Nova impressora</button>
       <label class="campo-inline" style="display:flex;gap:8px;align-items:center">
@@ -1525,6 +1573,27 @@ async function telaImpressao(painel) {
       <h3 style="margin-top:0">${ic('documento')} Pré-visualização (impressora padrão)</h3>
       <div id="imp-previa-padrao"></div>
     </div>`;
+
+  // Modo Kiosque: estado do atalho + criar/remover (a criação é registrada em auditoria).
+  const kEstado = painel.querySelector('#kiosque-estado');
+  async function refletirKiosque() {
+    try {
+      const st = await get('/sistema/atalho-kiosque');
+      if (!st.suportado) { kEstado.textContent = 'Google Chrome/Edge não encontrado (ou servidor não-Windows) — instale o navegador e recarregue.'; return; }
+      kEstado.innerHTML = st.existe
+        ? `<span style="color:var(--ok)">● Atalho criado:</span> <code style="word-break:break-all">${escapar(st.atalho)}</code>`
+        : 'Sem atalho — hoje a impressão abre o diálogo do navegador.';
+    } catch { kEstado.textContent = 'Não foi possível verificar o atalho.'; }
+  }
+  refletirKiosque();
+  painel.querySelector('#kiosque-ativar').onclick = async () => {
+    try { const r = await post('/sistema/atalho-kiosque', { ativo: true }); toast(`Atalho criado: ${r.atalho}`, 'ok'); refletirKiosque(); }
+    catch (e) { toast(e.message, 'erro'); }
+  };
+  painel.querySelector('#kiosque-remover').onclick = async () => {
+    try { await post('/sistema/atalho-kiosque', { ativo: false }); toast('Atalho removido', 'ok'); refletirKiosque(); }
+    catch (e) { toast(e.message, 'erro'); }
+  };
 
   const previaPadrao = () => {
     const imp = impressoras.find((i) => String(i.id) === String(painel.querySelector('#imp-padrao')?.value)) ?? impressoras.find((i) => i.ativo);
@@ -1567,7 +1636,7 @@ async function telaImpressao(painel) {
           const r = await post(`/impressoras/${b.dataset.teste}/teste`, {});
           const m = modal(`<h2>${ic('impressora')} Teste — ${escapar(r.impressora.nome)}</h2>
             <pre class="recibo-preview" style="max-width:${r.impressora.largura_mm === 58 ? '240px' : '340px'};margin:0 auto">${escapar(r.previa)}</pre>
-            <div style="display:flex;gap:10px;margin-top:12px">
+            <div class="no-print" style="display:flex;gap:10px;margin-top:12px">
               <button class="btn ghost" data-a="c">Fechar</button>
               <button class="btn primario grande" data-a="imp" style="flex:1">Imprimir teste</button>
             </div>`);
@@ -1575,7 +1644,13 @@ async function telaImpressao(painel) {
           m.caixa.querySelector('[data-a="imp"]').onclick = () => {
             let area = document.getElementById('area-impressao');
             if (!area) { area = document.createElement('div'); area.id = 'area-impressao'; document.body.appendChild(area); }
-            area.innerHTML = `<pre class="recibo-preview" style="background:#fff;color:#000;border:none;width:${r.impressora.largura_mm}mm">${escapar(r.previa)}</pre>`;
+            aplicarPaginaBobina(r.impressora.largura_mm);
+            area.innerHTML = montarCupomHTML({
+              textoSeguro: escapar(r.previa),
+              larguraMm: r.impressora.largura_mm,
+              impressao: opcoesImpressao(cfg),
+              logoUrl: cfg.logo_path ? `/${cfg.logo_path}` : '',
+            });
             window.print();
           };
         } catch (e) { toast(e.message, 'erro'); }

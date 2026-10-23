@@ -86,11 +86,12 @@ test('MOD-056: nenhuma funcionalidade perdida ao trocar por classes', () => {
   const tela = admin.slice(admin.indexOf('async function telaConfig'), admin.indexOf('async function telaComissoes'));
   // Campos de empresa vêm do array `campos`.
   const listaCampos = admin.slice(admin.indexOf('const campos = ['), admin.indexOf('const campos = [') + 400);
-  for (const k of ['empresa_nome', 'empresa_cnpj', 'empresa_telefone', 'empresa_endereco', 'recibo_rodape']) {
+  for (const k of ['empresa_nome', 'empresa_cnpj', 'empresa_telefone', 'empresa_endereco']) {
     assert.ok(listaCampos.includes(`'${k}'`), `config "${k}" preservado no array campos`);
   }
   // Flags e demais chaves aparecem literalmente no template.
-  for (const k of ['bloquear_apos_venda', 'desconto_caixa_permitido', 'modulo_kds', 'modulo_comanda',
+  for (const k of ['recibo_largura_mm', 'recibo_cabecalho', 'recibo_rodape',
+    'bloquear_apos_venda', 'desconto_caixa_permitido', 'modulo_kds', 'modulo_comanda',
     'nomenclatura_pedido', 'mesa_ociosa_minutos', 'comissao_pct',
     'layout_salao_largura', 'layout_salao_altura',
     'checkin_obrigatorio', 'checkin_exige_cadastro',

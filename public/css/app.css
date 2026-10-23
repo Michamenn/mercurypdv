@@ -349,10 +349,22 @@ table.dados td.num { font-family: var(--mono); font-variant-numeric: tabular-num
 .conta-acoes { display: flex; gap: 10px; margin-top: 14px; }
 .conta-acoes .btn.ghost { flex: 0 0 auto; }
 .conta-acoes .btn.primario { flex: 1; }
+/* Impressão do cupom não fiscal em bobina térmica (58/80 mm):
+   - @page margin 0 anula as margens forçadas pelo navegador (equivale a
+     "Margens: Nenhuma" no Chrome, inclusive na impressão silenciosa
+     --kiosk-printing, e não sobra espaço para cabeçalhos/rodapés de URL);
+   - a largura real da bobina vem da configuração do recibo (58/80 mm) aplicada
+     via style inline no .container-cupom — o 80 mm abaixo é o padrão;
+   - .no-print esconde botões/controles (Voltar, Imprimir) na hora de imprimir. */
 @media print {
+  @page { margin: 0; }
+  body { margin: 0; padding: 0; background-color: #fff; }
   body * { visibility: hidden; }
   #area-impressao, #area-impressao * { visibility: visible; }
   #area-impressao { position: absolute; left: 0; top: 0; width: 100%; }
+  .container-cupom { width: 80mm; margin: 0; padding: 2mm; box-shadow: none; box-sizing: border-box; }
+  .container-cupom .recibo-preview { width: 100%; padding: 0; border: none; background: #fff; color: #000; }
+  .no-print { display: none !important; }
 }
 .vazio { color: var(--texto-fraco); text-align: center; padding: 40px 10px; }
 .linha-itens { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--borda); }

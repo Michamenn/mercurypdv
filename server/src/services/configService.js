@@ -12,6 +12,17 @@ export const CHAVES_PADRAO = {
   empresa_endereco: '',
   recibo_rodape: 'Obrigado pela preferência!',
   recibo_largura_mm: '80',
+  recibo_cabecalho: '',
+  // Dimensões físicas da bobina (mm) — imprimem o cupom do tamanho exato do conteúdo.
+  recibo_margem_sup_mm: '0',
+  recibo_margem_inf_mm: '0',
+  recibo_extensao_mm: '0',
+  // Controle gráfico da logomarca no cupom (térmica é monocromática).
+  recibo_logo_imprimir: '0',
+  recibo_logo_modo: 'mono',
+  recibo_logo_brilho: '0',
+  recibo_logo_contraste: '0',
+  recibo_logo_bordas: '0',
   modulo_kds: '1',
   modulo_comanda: '1',
   modulo_estoque: '1',
@@ -88,8 +99,22 @@ const CORES_VALIDAS = new Set(['cor_acao', 'cor_ok', 'cor_alerta', 'cor_amarelo'
   if (chave === 'impressora_padrao_id' && valor !== '' && !/^\d+$/.test(valor)) {
     throw new Error('Impressora padrão deve ser o ID numérico de uma impressora cadastrada.');
   }
+  if (chave === 'recibo_largura_mm' && !['58', '80'].includes(valor)) {
+    throw new Error('Largura da bobina deve ser 58 ou 80.');
+  }
+  if (chave === 'recibo_logo_modo' && !['mono', 'dither', 'original'].includes(valor)) {
+    throw new Error('Modo de cor da logo deve ser: mono, dither ou original.');
+  }
+  if (['recibo_logo_imprimir', 'recibo_logo_bordas'].includes(chave) && !['0', '1'].includes(valor)) {
+    throw new Error(`${chave} deve ser 0 ou 1.`);
+  }
   // Campos numéricos com faixa — evita config que derruba o caixa.
   const NUMERICOS = {
+    recibo_margem_sup_mm: [0, 50],
+    recibo_margem_inf_mm: [0, 50],
+    recibo_extensao_mm: [0, 100],
+    recibo_logo_brilho: [-100, 100],
+    recibo_logo_contraste: [-100, 100],
     taxa_servico_pct: [0, 100],
     taxa_servico_fixo_centavos: [0, 100000],
     mesa_ociosa_minutos: [1, 1440],

@@ -60,7 +60,20 @@ export function emitirReciboCliente(db, usuario, pedidoId, larguraMm, ip) {
     // verdadeiro quando não há taxa cobrada, falso quando há valor na conta.
     sem_taxa_servico: (pedido.taxa_servico_centavos ?? 0) === 0,
     pagamentos,
+    cabecalho: config.recibo_cabecalho,
     rodape: config.recibo_rodape,
+    // Padrão de impressão gravado NO momento da emissão (reimpressão fiel).
+    logo_path: config.logo_path || '',
+    impressao: {
+      margem_sup_mm: Number(config.recibo_margem_sup_mm) || 0,
+      margem_inf_mm: Number(config.recibo_margem_inf_mm) || 0,
+      extensao_mm: Number(config.recibo_extensao_mm) || 0,
+      logo_imprimir: config.recibo_logo_imprimir ?? '0',
+      logo_modo: config.recibo_logo_modo ?? 'mono',
+      logo_brilho: Number(config.recibo_logo_brilho) || 0,
+      logo_contraste: Number(config.recibo_logo_contraste) || 0,
+      logo_bordas: config.recibo_logo_bordas ?? '0',
+    },
   };
 
   return transacao(db, () => {

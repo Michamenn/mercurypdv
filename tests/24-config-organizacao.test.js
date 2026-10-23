@@ -26,8 +26,8 @@ const telaConfig = admin.slice(
 test('MOD-060: TODA seção de configuração tem título', () => {
   // Antes: o primeiro bloco começava direto em "Nome da empresa", sem título.
   const cartoes = [...telaConfig.matchAll(/<div class="cartao cartao-secao" id="cfg-(\w+)">/g)].map((m) => m[1]);
-  assert.deepEqual(cartoes, ['empresa', 'comportamento', 'salao', 'taxa', 'logo', 'celular'],
-    'seis seções nomeadas, na ordem esperada');
+  assert.deepEqual(cartoes, ['empresa', 'cupom', 'comportamento', 'salao', 'taxa', 'logo', 'celular'],
+    'sete seções nomeadas, na ordem esperada');
   for (const id of cartoes) {
     const bloco = telaConfig.slice(telaConfig.indexOf(`id="cfg-${id}"`), telaConfig.indexOf(`id="cfg-${id}"`) + 400);
     assert.ok(bloco.includes('cartao-titulo'), `a seção "${id}" tem título visível`);
@@ -41,13 +41,19 @@ test('MOD-061: dados da empresa e comportamento do sistema não ficam misturados
   // O defeito: CNPJ/telefone/endereço conviviam com "bloquear após venda" e
   // "módulo KDS" no mesmo bloco sem nome.
   const blocoEmpresa = telaConfig.slice(
-    telaConfig.indexOf('id="cfg-empresa"'), telaConfig.indexOf('id="cfg-comportamento"'));
+    telaConfig.indexOf('id="cfg-empresa"'), telaConfig.indexOf('id="cfg-cupom"'));
   // A seção Empresa renderiza pelo array `campos` (não com chaves literais).
   assert.ok(blocoEmpresa.includes('campos.map'), 'a seção Empresa usa a lista de campos');
   const listaCampos = telaConfig.slice(
     telaConfig.indexOf('const campos = ['), telaConfig.indexOf('const campos = [') + 400);
-  for (const cfg of ['empresa_nome', 'empresa_cnpj', 'empresa_telefone', 'empresa_endereco', 'recibo_rodape']) {
+  for (const cfg of ['empresa_nome', 'empresa_cnpj', 'empresa_telefone', 'empresa_endereco']) {
     assert.ok(listaCampos.includes(`'${cfg}'`), `"${cfg}" está na lista de campos da Empresa`);
+  }
+  // A seção Cupom tem largura, cabeçalho e rodapé — separados da Empresa.
+  const blocoCupom = telaConfig.slice(
+    telaConfig.indexOf('id="cfg-cupom"'), telaConfig.indexOf('id="cfg-comportamento"'));
+  for (const cfg of ['recibo_largura_mm', 'recibo_cabecalho', 'recibo_rodape']) {
+    assert.ok(blocoCupom.includes(`data-cfg="${cfg}"`), `"${cfg}" está na seção Cupom`);
   }
 
   // O ponto crítico: nenhuma chave de comportamento pode estar na seção Empresa.
@@ -139,10 +145,11 @@ test('MOD-067: os rótulos da barra lateral não são cortados', () => {
 test('MOD-068: nenhuma configuração foi perdida na reorganização', () => {
   // Reorganizar não pode apagar nenhuma chave existente.
   const listaCampos = admin.slice(admin.indexOf('const campos = ['), admin.indexOf('const campos = [') + 400);
-  for (const k of ['empresa_nome', 'empresa_cnpj', 'empresa_telefone', 'empresa_endereco', 'recibo_rodape']) {
+  for (const k of ['empresa_nome', 'empresa_cnpj', 'empresa_telefone', 'empresa_endereco']) {
     assert.ok(listaCampos.includes(`'${k}'`), `campo de empresa "${k}" preservado`);
   }
-  for (const k of ['bloquear_apos_venda', 'desconto_caixa_permitido', 'modulo_kds', 'modulo_comanda',
+  for (const k of ['recibo_largura_mm', 'recibo_cabecalho', 'recibo_rodape',
+    'bloquear_apos_venda', 'desconto_caixa_permitido', 'modulo_kds', 'modulo_comanda',
     'nomenclatura_pedido', 'mesa_ociosa_minutos', 'comissao_pct',
     'layout_salao_largura', 'layout_salao_altura',
     'checkin_obrigatorio', 'checkin_exige_cadastro',

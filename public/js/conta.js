@@ -4,7 +4,7 @@
 // recibo (área #area-impressao + window.print()), na largura configurada (58/80 mm).
 import { modal, escapar } from './ui.js';
 import { get } from './api.js';
-import { rotuloForma } from './recibo.js';
+import { rotuloForma, opcoesImpressao, montarCupomHTML, aplicarPaginaBobina } from './recibo.js';
 import { ic } from './icons.js';
 
 const COLUNAS = { 58: 30, 80: 40 };
@@ -27,7 +27,7 @@ function comRotulo(rotulo, centavos, larg) {
  * pagamentos: [{ rotulo, valor_centavos }]
  */
 export function textoConta({
-  empresa = {}, rodape = '', titulo = '', subtitulo = '',
+  empresa = {}, cabecalho = '', rodape = '', titulo = '', subtitulo = '',
   itens = [], totais = {}, pagamentos = [],
 }, larguraMm) {
   const larg = COLUNAS[Number(larguraMm)] ?? 40;
@@ -66,6 +66,7 @@ export function textoConta({
     empresa.nome || null,
     empresa.cnpj || null,
     [empresa.telefone, empresa.endereco].filter(Boolean).join(' · ') || null,
+    ...(String(cabecalho ?? '').trim() ? String(cabecalho).trim().split('\n') : []),
     linha,
     titulo ? `CONTA — ${titulo}` : 'CONTA',
     subtitulo || null,
@@ -82,16 +83,22 @@ export function textoConta({
   ].filter(Boolean).join('\n');
 }
 
-// Impressão: mesmo mecanismo do recibo (BR-002) — o papel sai branco e legível,
-// sem a grade quadriculada da tela.
-function imprimirCupom(seguro, larguraMm) {
+// Impressão: padrão único do recibo (BR-002) — @page dinâmico (bobina com altura
+// automática), margens configuráveis e logo com filtro para térmica.
+function imprimirCupom(seguro, larguraMm, cfg) {
   let area = document.getElementById('area-impressao');
   if (!area) {
     area = document.createElement('div');
     area.id = 'area-impressao';
     document.body.appendChild(area);
   }
-  area.innerHTML = `<pre class="recibo-preview" style="background:#fff;color:#000;border:none;width:${larguraMm}mm">${seguro}</pre>`;
+  aplicarPaginaBobina(larguraMm);
+  area.innerHTML = montarCupomHTML({
+    textoSeguro: seguro,
+    larguraMm,
+    impressao: opcoesImpressao(cfg),
+    logoUrl: cfg?.logo_path ? `/${cfg.logo_path}` : '',
+  });
   window.print();
 }
 
@@ -114,7 +121,7 @@ export async function abrirConta({ titulo = '', subtitulo = '', itens = [], tota
   const larguraMm = Number(cfg.recibo_largura_mm) === 58 ? 58 : 80;
   const seguro = escapar(textoConta({
     empresa: { nome: cfg.empresa_nome, cnpj: cfg.empresa_cnpj, telefone: cfg.empresa_telefone, endereco: cfg.empresa_endereco },
-    rodape: cfg.recibo_rodape, titulo, subtitulo, itens, totais, pagamentos,
+    cabecalho: cfg.recibo_cabecalho, rodape: cfg.recibo_rodape, titulo, subtitulo, itens, totais, pagamentos,
   }, larguraMm));
   const vazio = itens.length === 0;
   const isMobile = window.innerWidth <= 768;
@@ -123,14 +130,14 @@ export async function abrirConta({ titulo = '', subtitulo = '', itens = [], tota
     ${vazio
       ? '<div class="vazio">Sem itens no consumo.</div>'
       : `<div class="conta-quadriculado" style="--cols:${COLUNAS[larguraMm] ?? 40}"><pre class="recibo-preview">${seguro}</pre></div>`}
-    <div class="conta-acoes">
+    <div class="conta-acoes no-print">
       <button class="btn ghost" data-a="voltar">Voltar</button>
       <button class="btn primario grande" data-a="imprimir"${vazio ? ' disabled' : ''}>${ic('impressora')} Imprimir</button>
     </div>`, { folha: isMobile, aoFechar });
   if (!isMobile) m.caixa.classList.add('conta-lateral');
   m.caixa.querySelector('[data-a="voltar"]').onclick = () => m.fechar();
   const btnImprimir = m.caixa.querySelector('[data-a="imprimir"]');
-  if (!vazio) btnImprimir.onclick = () => imprimirCupom(seguro, larguraMm);
+  if (!vazio) btnImprimir.onclick = () => imprimirCupom(seguro, larguraMm, cfg);
   return m;
 }
 

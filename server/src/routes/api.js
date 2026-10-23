@@ -23,6 +23,7 @@ import * as configService from '../services/configService.js';
 import * as notificacoes from '../services/notificacoesService.js';
 import * as impressoras from '../services/impressorasService.js';
 import { listarBackups, criarBackup } from '../tools/backup.js';
+import { estadoAtalhoKiosque, criarAtalhoKiosque, removerAtalhoKiosque } from '../tools/atalhoKiosque.js';
 import { registrar, consultar as consultarAuditoria } from '../core/audit.js';
 
 // Fábrica de rotas: recebe dependências (db, hub, crypto, config) para testes isolados.
@@ -649,12 +650,30 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
     } catch (e) { next(e); }
   });
 
+  // ---------- Modo Kiosque (atalho com impressão silenciosa no PC do caixa) ----------
+  r.get('/sistema/atalho-kiosque', auth, perm('pode_config_sistema'), async (req, res, next) => {
+    try { res.json(await estadoAtalhoKiosque()); } catch (e) { next(e); }
+  });
+  r.post('/sistema/atalho-kiosque', auth, guardaMutacao, perm('pode_config_sistema'), async (req, res, next) => {
+    try {
+      const desativar = req.body?.ativo === false;
+      const resultado = desativar
+        ? await removerAtalhoKiosque()
+        : await criarAtalhoKiosque({ porta: Number(process.env.LP_PORTA) || 3000 });
+      registrar(db, {
+        usuarioId: req.usuario.id, acao: desativar ? 'atalho_kiosque_removido' : 'atalho_kiosque_criado',
+        entidade: 'sistema', entidadeId: null, detalhes: resultado, ip: req.ipCliente,
+      });
+      res.json(resultado);
+    } catch (e) { next(e); }
+  });
+
   // ---------- Configurações ----------
   r.get('/config', auth, (req, res) => {
     const todas = configService.obterTodas(db);
     if (!ehGestao(req.usuario.cargo)) {
       // não-admin vê apenas o necessário para operação
-      return res.json({ empresa_nome: todas.empresa_nome, recibo_largura_mm: todas.recibo_largura_mm, modulo_kds: todas.modulo_kds, modulo_comanda: todas.modulo_comanda, bloquear_apos_venda: todas.bloquear_apos_venda,
+      return res.json({ empresa_nome: todas.empresa_nome, recibo_largura_mm: todas.recibo_largura_mm, recibo_cabecalho: todas.recibo_cabecalho, recibo_rodape: todas.recibo_rodape, logo_path: todas.logo_path, modulo_kds: todas.modulo_kds, modulo_comanda: todas.modulo_comanda, bloquear_apos_venda: todas.bloquear_apos_venda,
         tema_padrao: todas.tema_padrao, fonte_padrao: todas.fonte_padrao, densidade_padrao: todas.densidade_padrao,
         cor_acao: todas.cor_acao, cor_ok: todas.cor_ok, cor_alerta: todas.cor_alerta, cor_amarelo: todas.cor_amarelo,
         // Operacional: o garçom precisa ver como a mesa é chamada e se há taxa.

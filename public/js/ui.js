@@ -118,6 +118,24 @@ export function numpadConteudo({ monetario = false, aoDigitar, aoConfirmar, aoCa
   caixa.querySelector('[data-papel="ok"]').onclick = () => { confirmado = true; m.fechar(); aoConfirmar?.(buffer); };
   const btnExtra = caixa.querySelector('[data-papel="extra"]');
   if (btnExtra && acaoExtra) btnExtra.onclick = () => { confirmado = true; m.fechar(); acaoExtra.aoClicar?.(); };
+  // Teclado físico: o caixa digita sem tirar a mão do teclado — os MESMOS botões
+  // do pad respondem (reaproveita toda a regra de buffer). Dígitos, vírgula/ponto
+  // (monetário), Backspace apaga, Delete limpa, Enter confirma se o valor é válido.
+  // O listener se desliga sozinho quando o modal sai do DOM (fechar apaga o fundo).
+  const aoTecla = (e) => {
+    if (!document.body.contains(caixa)) { document.removeEventListener('keydown', aoTecla, true); return; }
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    if (/^[0-9]$/.test(e.key)) { caixa.querySelector(`[data-n="${e.key}"]`)?.click(); e.preventDefault(); }
+    else if (e.key === 'Backspace') { caixa.querySelector('[data-n="<"]')?.click(); e.preventDefault(); }
+    else if (e.key === 'Delete') { caixa.querySelector('[data-n="C"]')?.click(); e.preventDefault(); }
+    else if ((e.key === ',' || e.key === '.') && monetario) { caixa.querySelector('[data-n=","]')?.click(); e.preventDefault(); }
+    else if (e.key === 'Enter') {
+      const ok = caixa.querySelector('[data-papel="ok"]');
+      if (ok && !ok.disabled) { ok.click(); e.preventDefault(); }
+    }
+  };
+  document.addEventListener('keydown', aoTecla, true);
   return { m, get valor() { return buffer; } };
 }
 
