@@ -367,6 +367,13 @@ table.dados td.num { font-family: var(--mono); font-variant-numeric: tabular-num
   .no-print { display: none !important; }
 }
 .vazio { color: var(--texto-fraco); text-align: center; padding: 40px 10px; }
+
+/* ===== COMPRA MENSAL (conta de clientes) ===== */
+.mensal-linha { display: flex; justify-content: space-between; gap: 12px; padding: 12px; margin-bottom: 8px; cursor: pointer; align-items: center; }
+.mensal-linha:hover { border-color: var(--acao); }
+.mensal-saldo { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mensal-item { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--borda); align-items: center; }
+.assinatura-canvas { width: 100%; height: auto; background: #fff; border: 1px solid var(--borda); border-radius: 10px; display: block; touch-action: none; cursor: crosshair; }
 .linha-itens { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--borda); }
 .badge { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--borda); font-size: .8rem; }
 .badge.ok { color: var(--ok); border-color: var(--ok); }

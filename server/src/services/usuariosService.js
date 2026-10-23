@@ -198,6 +198,7 @@ export const ROTULOS_PERMISSAO = {
   pode_brinde: 'Dar cortesia/brinde',
   pode_fazer_checkin: 'Check-in de cliente',
   pode_gerenciar_taxa_servico: 'Configurar taxa de serviço',
+  pode_gerenciar_conta_clientes: 'Compra Mensal (conta de clientes)',
   pode_painel_dev: 'Painel do desenvolvedor (Suporte técnico)',
 };
 

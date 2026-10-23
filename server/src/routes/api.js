@@ -22,6 +22,7 @@ import * as salao from '../services/salaoService.js';
 import * as configService from '../services/configService.js';
 import * as notificacoes from '../services/notificacoesService.js';
 import * as impressoras from '../services/impressorasService.js';
+import * as mensal from '../services/mensalService.js';
 import { listarBackups, criarBackup } from '../tools/backup.js';
 import { estadoAtalhoKiosque, criarAtalhoKiosque, removerAtalhoKiosque } from '../tools/atalhoKiosque.js';
 import { registrar, consultar as consultarAuditoria } from '../core/audit.js';
@@ -648,6 +649,47 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
       if (!perms?.pode_ver_kds && !perms?.pode_lancar_comanda) throw erro.permissao();
       res.json(recibos.ticketCozinha(db, req.usuario, Number(req.params.id), req.ipCliente));
     } catch (e) { next(e); }
+  });
+
+  // ---------- Compra Mensal (conta de clientes: débito, assinatura, quitação) ----------
+  const permMensal = perm('pode_gerenciar_conta_clientes');
+  r.get('/mensal/clientes', auth, permMensal, (req, res) => {
+    res.json(mensal.listarClientes(db, req.query?.busca));
+  });
+  r.post('/mensal/clientes', auth, guardaMutacao, permMensal, (req, res, next) => {
+    try { res.status(201).json(mensal.criarCliente(db, req.usuario, req.body, req.ipCliente)); }
+    catch (e) { next(e); }
+  });
+  r.get('/mensal/clientes/:id', auth, permMensal, (req, res) => {
+    res.json(mensal.obterCliente(db, req.params.id));
+  });
+  r.put('/mensal/clientes/:id', auth, guardaMutacao, permMensal, (req, res, next) => {
+    try { res.json(mensal.atualizarCliente(db, req.usuario, req.params.id, req.body, req.ipCliente)); }
+    catch (e) { next(e); }
+  });
+  r.post('/mensal/clientes/:id/bloquear', auth, guardaMutacao, permMensal, (req, res, next) => {
+    try { res.json(mensal.definirBloqueio(db, req.usuario, req.params.id, req.body?.bloquear !== false, req.ipCliente)); }
+    catch (e) { next(e); }
+  });
+  r.delete('/mensal/clientes/:id', auth, guardaMutacao, permMensal, (req, res, next) => {
+    try { res.json(mensal.excluirCliente(db, req.usuario, req.params.id, req.ipCliente)); }
+    catch (e) { next(e); }
+  });
+  r.post('/mensal/clientes/:id/lancamentos', auth, guardaMutacao, permMensal, (req, res, next) => {
+    try { res.status(201).json(mensal.lancarDebito(db, req.usuario, req.params.id, req.body, req.ipCliente)); }
+    catch (e) { next(e); }
+  });
+  r.post('/mensal/clientes/:id/pagamentos', auth, guardaMutacao, permMensal, (req, res, next) => {
+    try { res.status(201).json(mensal.registrarPagamento(db, req.usuario, req.params.id, req.body, req.ipCliente)); }
+    catch (e) { next(e); }
+  });
+  r.post('/mensal/clientes/:id/parcelar', auth, guardaMutacao, permMensal, (req, res, next) => {
+    try { res.status(201).json(mensal.parcelarSaldo(db, req.usuario, req.params.id, req.body, req.ipCliente)); }
+    catch (e) { next(e); }
+  });
+  r.post('/mensal/pagamentos/:id/confirmar', auth, guardaMutacao, permMensal, (req, res, next) => {
+    try { res.json(mensal.confirmarParcela(db, req.usuario, req.params.id, req.ipCliente)); }
+    catch (e) { next(e); }
   });
 
   // ---------- Modo Kiosque (atalho com impressão silenciosa no PC do caixa) ----------

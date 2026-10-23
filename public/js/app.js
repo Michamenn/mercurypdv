@@ -14,6 +14,7 @@ import * as vMesas from './views/mesas.js';
 import * as vKds from './views/kds.js';
 import * as vCaixa from './views/caixa.js';
 import * as vAdmin from './views/admin.js';
+import * as vMensal from './views/mensal.js';
 import * as vMobile from './views/mobile.js';
 import * as vComandas from './views/comandas.js';
 
@@ -162,6 +163,7 @@ const ROTAS = [
   { id: 'comandas', icone: 'recibo', rotulo: 'Comandas', permOu: ['pode_lancar_comanda', 'pode_dividir_pagar'], view: vComandas },
   { id: 'kds', icone: 'panela', rotulo: 'Cozinha (KDS)', perm: 'pode_ver_kds', view: vKds },
   { id: 'caixa', icone: 'dinheiro', rotulo: 'Caixa', perm: 'pode_abrir_fechar_caixa', view: vCaixa },
+  { id: 'mensal', icone: 'pessoa', rotulo: 'Compra Mensal', perm: 'pode_gerenciar_conta_clientes', view: vMensal },
   { id: 'admin', icone: 'engrenagem', rotulo: 'Administração', perm: 'pode_config_sistema', view: vAdmin },
   { id: 'relatorios', icone: 'grafico', rotulo: 'Relatórios', perm: 'pode_ver_relatorios', view: vAdmin, sub: 'relatorios' },
 ];
