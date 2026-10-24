@@ -653,6 +653,9 @@ export function criarRouter({ db, hub, crypto, pepper, configApp, logger }) {
 
   // ---------- Compra Mensal (conta de clientes: débito, assinatura, quitação) ----------
   const permMensal = perm('pode_gerenciar_conta_clientes');
+  r.get('/mensal/produtos', auth, permMensal, (_req, res) => {
+    res.json({ produtos: mensal.produtosParaLancamento(db) });
+  });
   r.get('/mensal/clientes', auth, permMensal, (req, res) => {
     res.json(mensal.listarClientes(db, req.query?.busca));
   });

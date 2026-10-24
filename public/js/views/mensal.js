@@ -289,16 +289,27 @@ function colherAssinatura() {
 function modalLancamento(c, aoSalvar) {
   const agora = new Date();
   let assinaturaDataUrl = null;
+  let catalogo = [];
+  let itens = []; // [{ produto, quantidade }]
   const m = modal(`
     <h2>Lançar débito — ${escapar(c.nome)}</h2>
     ${c.bloqueado ? '<p style="color:var(--alerta)">Cliente BLOQUEADO: lance só após desbloquear.</p>' : ''}
-    <div class="grade-config">
-      <label><span class="campo-titulo">Quantidade</span>
-        <input class="campo" id="lc-qtd" type="number" min="1" max="999" value="1" /></label>
-      <label><span class="campo-titulo">Consumo *</span>
-        <input class="campo" id="lc-consumo" placeholder="ex.: Almoço — prato feito" maxlength="200" /></label>
-      <label><span class="campo-titulo">Valor total (R$) *</span>
-        <input class="campo" id="lc-valor" inputmode="decimal" placeholder="0,00" /></label>
+    <label><span class="campo-titulo">Buscar produto do cardápio</span>
+      <input class="campo" id="lc-busca" placeholder="nome do produto…" autocomplete="off" aria-label="Buscar produto do cardápio" /></label>
+    <div id="lc-resultados"></div>
+    <div id="lc-itens"></div>
+    <div id="lc-manual">
+      <div class="grade-config">
+        <label><span class="campo-titulo">Quantidade</span>
+          <input class="campo" id="lc-qtd" type="number" min="1" max="999" value="1" /></label>
+        <label><span class="campo-titulo">Consumo *</span>
+          <input class="campo" id="lc-consumo" placeholder="ex.: Almoço — prato feito" maxlength="200" /></label>
+        <label><span class="campo-titulo">Valor total (R$) *</span>
+          <input class="campo" id="lc-valor" inputmode="decimal" placeholder="0,00" /></label>
+      </div>
+      <p style="margin:6px 0 0"><small style="color:var(--texto-fraco)">Ou lance do cardápio: busque acima e adicione produtos — o valor sai do preço cadastrado.</small></p>
+    </div>
+    <div class="grade-config" style="margin-top:10px">
       <label><span class="campo-titulo">Data</span>
         <input class="campo" id="lc-data" type="date" value="${dataLocal(agora)}" /></label>
       <label><span class="campo-titulo">Hora</span>
@@ -312,32 +323,93 @@ function modalLancamento(c, aoSalvar) {
       <button class="btn ghost" data-a="c">Cancelar</button>
       <button class="btn primario grande" data-a="ok" style="flex:1">Lançar</button>
     </div>`);
-  m.caixa.querySelector('[data-a="c"]').onclick = m.fechar;
-  m.caixa.querySelector('#lc-assinatura').onclick = async () => {
+  const caixa = m.caixa;
+  const totalItens = () => itens.reduce((s, i) => s + i.produto.preco_centavos * i.quantidade, 0);
+
+  // Catálogo enxuto (produtos ativos) — carregado uma vez ao abrir o modal.
+  get('/mensal/produtos')
+    .then((r) => { catalogo = r?.produtos ?? []; refletirBusca(); })
+    .catch(() => { catalogo = []; });
+
+  function refletirBusca() {
+    const termo = caixa.querySelector('#lc-busca').value.trim().toLowerCase();
+    const alvo = caixa.querySelector('#lc-resultados');
+    if (!termo) { alvo.innerHTML = ''; return; }
+    const achados = catalogo.filter((p) => p.nome.toLowerCase().includes(termo)).slice(0, 8);
+    alvo.innerHTML = achados.length
+      ? achados.map((p) => `<button class="btn ghost" data-add="${p.id}" style="width:100%;display:flex;justify-content:space-between;margin-bottom:6px"><span>${escapar(p.nome)}</span><strong>${fmt(p.preco_centavos)}</strong></button>`).join('')
+      : '<small style="color:var(--texto-fraco)">nenhum produto encontrado</small>';
+    alvo.querySelectorAll('[data-add]').forEach((b) => {
+      b.onclick = () => {
+        const p = catalogo.find((x) => x.id === Number(b.dataset.add));
+        if (!p) return;
+        const jaTem = itens.find((i) => i.produto.id === p.id);
+        if (jaTem) jaTem.quantidade = Math.min(999, jaTem.quantidade + 1);
+        else itens.push({ produto: p, quantidade: 1 });
+        refletirItens();
+      };
+    });
+  }
+  caixa.querySelector('#lc-busca').oninput = refletirBusca;
+
+  function refletirItens() {
+    const box = caixa.querySelector('#lc-itens');
+    const manual = caixa.querySelector('#lc-manual');
+    if (!itens.length) { box.innerHTML = ''; manual.style.display = ''; return; }
+    manual.style.display = 'none'; // com itens do cardápio o valor é o do catálogo
+    box.innerHTML = itens.map((i, idx) => `
+      <div class="mensal-item">
+        <div style="flex:1;min-width:0"><strong>${escapar(i.produto.nome)}</strong>
+          <br><small style="color:var(--texto-fraco)">${fmt(i.produto.preco_centavos)} cada</small></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn ghost" data-menos="${idx}" aria-label="Diminuir quantidade">-</button>
+          <strong>${i.quantidade}</strong>
+          <button class="btn ghost" data-mais="${idx}" aria-label="Aumentar quantidade">+</button>
+          <button class="btn ghost perigo" data-rem="${idx}" aria-label="Remover item">${ic('x')}</button>
+          <strong style="min-width:80px;text-align:right">${fmt(i.produto.preco_centavos * i.quantidade)}</strong>
+        </div>
+      </div>`).join('')
+      + `<div class="mensal-item" style="border-bottom:none"><strong style="flex:1">Total do lançamento</strong><strong style="min-width:80px;text-align:right">${fmt(totalItens())}</strong></div>`;
+    box.querySelectorAll('[data-menos]').forEach((b) => { b.onclick = () => { const i = itens[Number(b.dataset.menos)]; i.quantidade = Math.max(1, i.quantidade - 1); refletirItens(); }; });
+    box.querySelectorAll('[data-mais]').forEach((b) => { b.onclick = () => { const i = itens[Number(b.dataset.mais)]; i.quantidade = Math.min(999, i.quantidade + 1); refletirItens(); }; });
+    box.querySelectorAll('[data-rem]').forEach((b) => { b.onclick = () => { itens.splice(Number(b.dataset.rem), 1); refletirItens(); }; });
+  }
+
+  caixa.querySelector('[data-a="c"]').onclick = m.fechar;
+  caixa.querySelector('#lc-assinatura').onclick = async () => {
     const dataUrl = await colherAssinatura();
     if (dataUrl) {
       assinaturaDataUrl = dataUrl;
-      m.caixa.querySelector('#lc-assinatura-ok').hidden = false;
+      caixa.querySelector('#lc-assinatura-ok').hidden = false;
     }
   };
-  m.caixa.querySelector('[data-a="ok"]').onclick = async () => {
-    const quantidade = Number(m.caixa.querySelector('#lc-qtd').value || '1');
-    const consumo = m.caixa.querySelector('#lc-consumo').value.trim();
-    const valorTexto = m.caixa.querySelector('#lc-valor').value.trim();
-    const data = m.caixa.querySelector('#lc-data').value;
-    const hora = m.caixa.querySelector('#lc-hora').value || '12:00';
-    if (!consumo) { toast('Descreva o consumo', 'erro'); return; }
-    const valor = reaisParaCentavos(valorTexto || '0');
-    if (!valor || valor <= 0) { toast('Valor inválido', 'erro'); return; }
+  caixa.querySelector('[data-a="ok"]').onclick = async () => {
+    const data = caixa.querySelector('#lc-data').value;
+    const hora = caixa.querySelector('#lc-hora').value || '12:00';
     if (!data) { toast('Informe a data', 'erro'); return; }
-    try {
-      await post(`/mensal/clientes/${c.id}/lancamentos`, {
-        quantidade, consumo, valor_centavos: valor,
+    let corpo;
+    if (itens.length) {
+      corpo = {
+        itens: itens.map((i) => ({ produto_id: i.produto.id, quantidade: i.quantidade })),
         data_hora: `${data}T${hora}`,
-        assinatura_data_url: assinaturaDataUrl || undefined,
-      });
+      };
+    } else {
+      const consumo = caixa.querySelector('#lc-consumo').value.trim();
+      const valorTexto = caixa.querySelector('#lc-valor').value.trim();
+      if (!consumo) { toast('Descreva o consumo ou adicione produtos do cardápio', 'erro'); return; }
+      const valor = reaisParaCentavos(valorTexto || '0');
+      if (!valor || valor <= 0) { toast('Valor inválido', 'erro'); return; }
+      corpo = {
+        quantidade: Number(caixa.querySelector('#lc-qtd').value || '1'),
+        consumo, valor_centavos: valor,
+        data_hora: `${data}T${hora}`,
+      };
+    }
+    if (assinaturaDataUrl) corpo.assinatura_data_url = assinaturaDataUrl;
+    try {
+      await post(`/mensal/clientes/${c.id}/lancamentos`, corpo);
       m.fechar();
-      toast(assinaturaDataUrl ? 'Débito lançado com assinatura' : 'Débito lançado', 'ok');
+      toast(itens.length ? 'Débito lançado do cardápio' : (assinaturaDataUrl ? 'Débito lançado com assinatura' : 'Débito lançado'), 'ok');
       aoSalvar?.();
     } catch (e) { toast(e.message, 'erro'); }
   };

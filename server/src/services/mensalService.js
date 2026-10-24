@@ -132,28 +132,59 @@ export function definirBloqueio(db, usuario, id, bloquear, ip) {
   });
 }
 
+// Catálogo enxuto para o lançamento de débito (só ativos, ordem alfabética).
+export function produtosParaLancamento(db) {
+  return db.prepare('SELECT id, nome, preco_centavos FROM produtos WHERE ativo = 1 ORDER BY nome LIMIT 500').all();
+}
+
+// Lança débito na conta do cliente. Dois formatos:
+// 1) itens: [{ produto_id, quantidade }] — valor RECALCULADO do cardápio
+//    (o valor do cliente é ignorado, regra de ouro do sistema) e o consumo
+//    é gerado a partir dos nomes ("2× X-Burger · 1× Refrigerante").
+// 2) manual (retrocompatível): quantidade + consumo + valor digitados.
 export function lancarDebito(db, usuario, id, dados, ip) {
   const c = clientePorId(db, id);
   if (c.bloqueado) throw erro.conflito('409_CLIENTE_BLOQUEADO', 'Cliente bloqueado — não aceita novos débitos. Desbloqueie para lançar.');
-  const quantidade = Number(dados?.quantidade ?? 1);
-  if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 999) throw erro.validacao('Quantidade deve ser entre 1 e 999.');
-  const consumo = String(dados?.consumo ?? '').trim();
-  if (!consumo) throw erro.validacao('Descreva o consumo (ex.: "Almoço — prato feito").');
-  const valor = Number(dados?.valor_centavos);
-  if (!Number.isInteger(valor) || valor < 0 || valor > 100_000_000) throw erro.validacao('Valor do lançamento inválido.');
   const dataHora = normalizarDataHora(dados?.data_hora);
-  const limite = c.limite_centavos;
+  const itensEntrada = Array.isArray(dados?.itens) ? dados.itens : [];
+  let valor;
+  let consumo;
+  let itensJson = null;
+  let quantidadeManual = null;
+
+  if (itensEntrada.length) {
+    if (itensEntrada.length > 50) throw erro.validacao('Máximo de 50 produtos por lançamento.');
+    const detalhes = [];
+    for (const it of itensEntrada) {
+      const qtd = Number(it?.quantidade);
+      if (!Number.isInteger(qtd) || qtd < 1 || qtd > 999) throw erro.validacao('Quantidade de item deve ser entre 1 e 999.');
+      const p = db.prepare('SELECT id, nome, preco_centavos, ativo FROM produtos WHERE id = ?').get(Number(it?.produto_id));
+      if (!p) throw erro.naoEncontrado(`Produto ${it.produto_id} não encontrado no cardápio.`);
+      if (!p.ativo) throw erro.conflito('409_PRODUTO_INATIVO', `"${p.nome}" está inativo no cardápio — reative o produto ou lance manualmente.`);
+      detalhes.push({ produto_id: p.id, nome: p.nome, preco_unit_centavos: p.preco_centavos, quantidade: qtd });
+    }
+    valor = detalhes.reduce((s, d) => s + d.preco_unit_centavos * d.quantidade, 0);
+    consumo = detalhes.map((d) => `${d.quantidade}× ${d.nome}`).join(' · ').slice(0, 200);
+    itensJson = JSON.stringify(detalhes);
+  } else {
+    quantidadeManual = Number(dados?.quantidade ?? 1);
+    if (!Number.isInteger(quantidadeManual) || quantidadeManual < 1 || quantidadeManual > 999) throw erro.validacao('Quantidade deve ser entre 1 e 999.');
+    consumo = String(dados?.consumo ?? '').trim();
+    if (!consumo) throw erro.validacao('Descreva o consumo ou adicione itens do cardápio.');
+    valor = Number(dados?.valor_centavos);
+    if (!Number.isInteger(valor) || valor < 0 || valor > 100_000_000) throw erro.validacao('Valor do lançamento inválido.');
+  }
   const assinaturaPath = salvarAssinatura(dados?.assinatura_data_url);
   return transacao(db, () => {
     const r = resumo(db, c);
-    if (limite !== null && r.saldo_centavos + valor > limite) {
-      throw erro.conflito('409_LIMITE_ESTOURADO', `Lançamento recusado: ultrapassa o limite do cliente (saldo ${r.saldo_centavos} + ${valor} > limite ${limite} centavos).`);
+    if (c.limite_centavos !== null && r.saldo_centavos + valor > c.limite_centavos) {
+      throw erro.conflito('409_LIMITE_ESTOURADO', `Lançamento recusado: ultrapassa o limite do cliente (saldo ${r.saldo_centavos} + ${valor} > limite ${c.limite_centavos} centavos).`);
     }
     const info = db.prepare(
-      `INSERT INTO mensal_lancamentos (cliente_id, quantidade, consumo, data_hora, valor_centavos, assinatura_path, criado_por, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(c.id, quantidade, consumo.slice(0, 200), dataHora, valor, assinaturaPath, usuario.id, agoraISO());
-    registrar(db, { usuarioId: usuario.id, acao: 'mensal_debito_lancado', entidade: 'mensal_lancamentos', entidadeId: Number(info.lastInsertRowid), detalhes: { cliente: c.codigo, consumo: consumo.slice(0, 100), valor_centavos: valor, assinado: Boolean(assinaturaPath) }, ip });
+      `INSERT INTO mensal_lancamentos (cliente_id, quantidade, consumo, data_hora, valor_centavos, itens_json, assinatura_path, criado_por, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(c.id, quantidadeManual ?? 1, consumo, dataHora, valor, itensJson, assinaturaPath, usuario.id, agoraISO());
+    registrar(db, { usuarioId: usuario.id, acao: 'mensal_debito_lancado', entidade: 'mensal_lancamentos', entidadeId: Number(info.lastInsertRowid), detalhes: { cliente: c.codigo, consumo: consumo.slice(0, 100), valor_centavos: valor, do_cardapio: Boolean(itensJson), assinado: Boolean(assinaturaPath) }, ip });
     return obterCliente(db, c.id);
   });
 }

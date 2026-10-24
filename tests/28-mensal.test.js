@@ -140,6 +140,43 @@ test('MENSAL-004: parcelar o saldo e dar baixa parcela a parcela', async () => {
   } finally { await sv.fechar(); }
 });
 
+test('MENSAL-006: lançar débito com itens do cardápio (valor recalculado pelo servidor)', async () => {
+  const sv = await iniciarServidorTeste();
+  try {
+    const { adminCli, garcomCli, produtos } = await semear(sv);
+    const c = (await adminCli.post('/mensal/clientes', { nome: 'Gabriela' })).corpo;
+    // 2× X-Burger (2500) + 1× Refrigerante (600) = 5600. O valor do corpo (1) é IGNORADO.
+    const l = await adminCli.post(`/mensal/clientes/${c.id}/lancamentos`, {
+      itens: [
+        { produto_id: produtos.xburger.id, quantidade: 2 },
+        { produto_id: produtos.refri.id, quantidade: 1 },
+      ],
+      valor_centavos: 1,
+      data_hora: '2026-10-23T13:00',
+    });
+    assert.equal(l.status, 201);
+    assert.equal(l.corpo.lancamentos[0].valor_centavos, 5600, 'valor recalculado do cardápio');
+    assert.ok(l.corpo.lancamentos[0].consumo.includes('2× X-Burger'), 'consumo gerado com nome e quantidade');
+    assert.ok(l.corpo.lancamentos[0].consumo.includes('1× Refrigerante Lata'));
+    const itens = JSON.parse(l.corpo.lancamentos[0].itens_json);
+    assert.equal(itens.length, 2);
+    assert.equal(itens[0].preco_unit_centavos, 2500);
+    assert.equal(itens[1].quantidade, 1);
+    assert.equal(l.corpo.cliente.saldo_centavos, 5600);
+    // Produto inexistente → 404; quantidade zero → 422
+    const inexistente = await adminCli.post(`/mensal/clientes/${c.id}/lancamentos`, { itens: [{ produto_id: 999999, quantidade: 1 }] });
+    assert.equal(inexistente.status, 404);
+    const qtd0 = await adminCli.post(`/mensal/clientes/${c.id}/lancamentos`, { itens: [{ produto_id: produtos.xburger.id, quantidade: 0 }] });
+    assert.equal(qtd0.status, 422);
+    // Catálogo enxuto para o lançamento (só ativos) e RBAC
+    const catalogo = await adminCli.get('/mensal/produtos');
+    assert.equal(catalogo.status, 200);
+    assert.ok(catalogo.corpo.produtos.length >= 3);
+    assert.ok(catalogo.corpo.produtos.every((p) => Number.isInteger(p.preco_centavos) && p.nome));
+    assert.equal((await garcomCli.get('/mensal/produtos')).status, 403);
+  } finally { await sv.fechar(); }
+});
+
 test('MENSAL-005: editar, bloquear via PUT/PATCH-semântica e excluir com histórico', async () => {
   const sv = await iniciarServidorTeste();
   try {
